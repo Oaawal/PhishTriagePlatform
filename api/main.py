@@ -1,20 +1,39 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from sqlmodel import Session, select
 
 from api.db import init_db, get_session
 from api.models import Case
 
-app = FastAPI(title="PhishTriage API", version="0.2.0")
+app = FastAPI(title="PhishTriage API", version="0.2.1")
+
 
 @app.on_event("startup")
 def on_startup():
     init_db()
 
+
+@app.get("/")
+def home():
+    return {
+        "name": "PhishTriage API",
+        "status": "running",
+        "health": "/health",
+        "docs": "/docs",
+        "endpoints": {
+            "create_case": "POST /cases",
+            "list_cases": "GET /cases?status=Open",
+            "get_case": "GET /cases/{case_id}",
+            "update_case": "PATCH /cases/{case_id}",
+        },
+    }
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-# --- Case Queue (MVP) ---
+
+# ---------------- Case Queue (MVP) ----------------
 
 @app.post("/cases")
 def create_case(case: Case, session: Session = Depends(get_session)):
@@ -23,17 +42,20 @@ def create_case(case: Case, session: Session = Depends(get_session)):
     session.refresh(case)
     return case
 
+
 @app.get("/cases")
 def list_cases(status: str = "Open", session: Session = Depends(get_session)):
     stmt = select(Case).where(Case.status == status).order_by(Case.created_at.desc())
     return session.exec(stmt).all()
 
+
 @app.get("/cases/{case_id}")
 def get_case(case_id: str, session: Session = Depends(get_session)):
     c = session.get(Case, case_id)
     if not c:
-        return {"error": "not found"}
+        raise HTTPException(status_code=404, detail="Case not found")
     return c
+
 
 @app.patch("/cases/{case_id}")
 def update_case(
@@ -45,7 +67,7 @@ def update_case(
 ):
     c = session.get(Case, case_id)
     if not c:
-        return {"error": "not found"}
+        raise HTTPException(status_code=404, detail="Case not found")
 
     if status:
         c.status = status
