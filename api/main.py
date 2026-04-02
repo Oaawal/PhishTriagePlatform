@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException
 from sqlmodel import Session, select
+from api.normalize import normalize_ng_number
 
 from api.db import init_db, get_session
 from api.models import Case
@@ -31,7 +32,12 @@ def home():
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
+@app.get("/normalize")
+def normalize(number: str):
+    n = normalize_ng_number(number)
+    if not n:
+        raise HTTPException(status_code=400, detail="Invalid phone number format")
+    return {"input": number, "normalized": n}
 
 # ---------------- Case Queue (MVP) ----------------
 
