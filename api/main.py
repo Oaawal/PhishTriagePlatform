@@ -3,6 +3,7 @@ from sqlmodel import Session, select
 from api.normalize import normalize_ng_number
 from api.db import init_db, get_session
 from api.models import Case, Number, Report
+from datetime import datetime
 
 app = FastAPI(title="PhishTriage API", version="0.2.1")
 
@@ -94,9 +95,14 @@ def report_number(
 
     number_record = session.get(Number, n)
     if not number_record:
-        number_record = Number(number_e164=n)
-        session.add(number_record)
+        number_record = Number(number_e164=n, source="community")
 
+    number_record.report_count_total = (number_record.report_count_total or 0) + 1
+    number_record.report_count_7d = (number_record.report_count_7d or 0) + 1
+    number_record.report_count_30d = (number_record.report_count_30d or 0) + 1
+    number_record.last_reported_at = datetime.utcnow()
+
+    session.add(number_record)
     session.commit()
     session.refresh(report)
 
