@@ -71,7 +71,42 @@ def lookup(number: str, session: Session = Depends(get_session)):
         "source": record.source,
     }
 
+@app.post("/report")
+def report_number(
+    number: str,
+    reason: str,
+    channel: str,
+    message: str | None = None,
+    session: Session = Depends(get_session),
+):
+    n = normalize_ng_number(number)
+    if not n:
+        raise HTTPException(status_code=400, detail="Invalid phone number format")
 
+    report = Report(
+        number_e164=n,
+        reason=reason,
+        channel=channel,
+        message_sanitized=message,
+        status="Pending",
+    )
+    session.add(report)
+
+    number_record = session.get(Number, n)
+    if not number_record:
+        number_record = Number(number_e164=n)
+        session.add(number_record)
+
+    session.commit()
+    session.refresh(report)
+
+    return {
+        "message": "Report submitted successfully",
+        "report_id": report.id,
+        "status": report.status,
+        "number": n,
+    }
+    
 # ---------------- Case Queue (MVP) ----------------
 
 @app.post("/cases")
