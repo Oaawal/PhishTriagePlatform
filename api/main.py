@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from sqlmodel import Session, select
 from api.normalize import normalize_ng_number
 from api.db import init_db, get_session
-from api.models import Case, Number
+from api.models import Case, Number, Report
 
 app = FastAPI(title="PhishTriage API", version="0.2.1")
 
