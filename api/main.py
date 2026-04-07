@@ -16,7 +16,11 @@ def on_startup():
 
 @app.get("/")
 def home():
-    return {"status": "running", "docs": "/docs"}
+    return {
+        "name": "PhishTriage API",
+        "status": "running",
+        "docs": "/docs",
+    }
 
 
 @app.get("/health")
@@ -30,8 +34,8 @@ def health():
 def normalize(number: str):
     n = normalize_ng_number(number)
     if not n:
-        raise HTTPException(400, "Invalid phone number")
-    return {"normalized": n}
+        raise HTTPException(status_code=400, detail="Invalid phone number format")
+    return {"input": number, "normalized": n}
 
 
 # ---------------- LOOKUP ----------------
@@ -40,18 +44,24 @@ def normalize(number: str):
 def lookup(number: str, session: Session = Depends(get_session)):
     n = normalize_ng_number(number)
     if not n:
-        raise HTTPException(400, "Invalid phone number")
+        raise HTTPException(status_code=400, detail="Invalid phone number format")
 
     record = session.get(Number, n)
 
     if not record:
-        return {"found": False, "number": n}
+        return {
+            "found": False,
+            "number": n,
+            "message": "No reports or profile found",
+        }
 
+    # trend logic
     trend = "stable"
-    if record.report_count_7d >= 5:
+    if record.report_count_7d and record.report_count_7d >= 5:
         trend = "rising"
 
-    confidence = min(50 + (record.report_count_total * 5), 100)
+    # confidence scoring
+    confidence = min(50 + (record.report_count_total or 0) * 5, 100)
 
     return {
         "found": True,
@@ -59,7 +69,11 @@ def lookup(number: str, session: Session = Depends(get_session)):
         "risk_level": record.risk_level,
         "confidence": confidence,
         "current_label": record.current_label,
+        "tags": record.tags,
         "report_count_total": record.report_count_total,
+        "report_count_7d": record.report_count_7d,
+        "report_count_30d": record.report_count_30d,
+        "last_reported_at": record.last_reported_at,
         "trend": trend,
     }
 
@@ -71,23 +85,44 @@ def report_number(
     number: str,
     reason: str,
     channel: str,
+    message: str | None = None,
+    reporter_fingerprint: str | None = None,
     session: Session = Depends(get_session),
 ):
     n = normalize_ng_number(number)
+    if not n:
+        raise HTTPException(status_code=400, detail="Invalid phone number format")
+
+    # basic duplicate protection
+    if reporter_fingerprint:
+        existing = session.exec(
+            select(Report).where(
+                Report.number_e164 == n,
+                Report.reporter_fingerprint == reporter_fingerprint,
+                Report.status == "Pending",
+            )
+        ).first()
+
+        if existing:
+            raise HTTPException(status_code=400, detail="Duplicate report detected")
 
     report = Report(
         number_e164=n,
         reason=reason,
         channel=channel,
+        message_sanitized=message,
         status="Pending",
+        reporter_fingerprint=reporter_fingerprint,
     )
 
     session.add(report)
 
+    # ensure number exists
     number_record = session.get(Number, n)
     if not number_record:
         number_record = Number(
             number_e164=n,
+            source="community",
             report_count_total=0,
             report_count_7d=0,
             report_count_30d=0,
@@ -98,73 +133,113 @@ def report_number(
     session.commit()
     session.refresh(report)
 
-    return {"status": "submitted", "report_id": report.id}
+    return {
+        "message": "Report submitted successfully",
+        "report_id": report.id,
+        "status": report.status,
+        "number": n,
+    }
 
 
-# ---------------- REPORTS ----------------
+# ---------------- REPORT LIST ----------------
 
 @app.get("/reports")
-def get_reports(session: Session = Depends(get_session)):
-    return session.exec(select(Report)).all()
+def list_reports(session: Session = Depends(get_session)):
+    stmt = select(Report).order_by(Report.created_at.desc())
+    return session.exec(stmt).all()
 
 
 @app.get("/admin/reports")
-def get_admin_reports(status: str = "Pending", session: Session = Depends(get_session)):
-    return session.exec(select(Report).where(Report.status == status)).all()
+def list_admin_reports(
+    status: str = "Pending",
+    session: Session = Depends(get_session),
+):
+    stmt = select(Report).where(Report.status == status).order_by(Report.created_at.desc())
+    return session.exec(stmt).all()
 
+
+# ---------------- MODERATION ----------------
 
 @app.patch("/admin/reports/{report_id}")
-def moderate(report_id: str, action: str, session: Session = Depends(get_session)):
+def moderate_report(
+    report_id: str,
+    action: str,
+    session: Session = Depends(get_session),
+):
     report = session.get(Report, report_id)
-
     if not report:
-        raise HTTPException(404, "Report not found")
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    if action not in ["approve", "reject"]:
+        raise HTTPException(status_code=400, detail="Invalid action")
 
     report.status = "Approved" if action == "approve" else "Rejected"
 
+    # update number only if approved
     if action == "approve":
         number = session.get(Number, report.number_e164)
 
-        number.report_count_total += 1
-        number.report_count_7d += 1
-        number.report_count_30d += 1
+        number.report_count_total = (number.report_count_total or 0) + 1
+        number.report_count_7d = (number.report_count_7d or 0) + 1
+        number.report_count_30d = (number.report_count_30d or 0) + 1
         number.last_reported_at = datetime.utcnow()
 
-        if number.report_count_total >= 5:
-            number.risk_level = "Medium"
+        # risk scoring
         if number.report_count_total >= 15:
-            number.risk_level = "High"
+            risk = "High"
+        elif number.report_count_total >= 5:
+            risk = "Medium"
+        else:
+            risk = "Low"
+
+        # label assignment
+        reason = report.reason.lower().strip()
+
+        if reason in ["otp scam", "bank scam"]:
+            number.current_label = report.reason.title()
+            number.tags = "otp,bank"
+            risk = "High"
+        elif reason == "loan scam":
+            number.current_label = "Loan Scam"
+            number.tags = "loan,fraud"
+
+        number.risk_level = risk
 
         session.add(number)
 
     session.add(report)
     session.commit()
+    session.refresh(report)
 
-    return {"status": report.status}
+    return {
+        "message": "Report updated",
+        "status": report.status,
+        "report_id": report.id,
+    }
 
 
-# ---------------- HIGH RISK ----------------
+# ---------------- HIGH RISK NUMBERS ----------------
 
 @app.get("/numbers/high-risk")
-def high_risk(session: Session = Depends(get_session)):
-    return session.exec(
-        select(Number).where(Number.risk_level == "High")
-    ).all()
+def high_risk_numbers(session: Session = Depends(get_session)):
+    stmt = select(Number).where(Number.risk_level == "High").order_by(Number.last_reported_at.desc())
+    return session.exec(stmt).all()
 
 
 # ---------------- ALERTS ----------------
 
 @app.get("/alerts")
 def alerts(session: Session = Depends(get_session)):
-    numbers = session.exec(
-        select(Number).where(Number.risk_level == "High")
-    ).all()
+    stmt = select(Number).where(Number.risk_level == "High").order_by(Number.last_reported_at.desc())
+    numbers = session.exec(stmt).all()
 
     return [
         {
             "number": n.number_e164,
-            "risk": n.risk_level,
+            "risk_level": n.risk_level,
             "label": n.current_label,
+            "last_reported_at": n.last_reported_at,
+            "tags": n.tags,
         }
         for n in numbers
     ]
@@ -181,13 +256,40 @@ def create_case(case: Case, session: Session = Depends(get_session)):
 
 
 @app.get("/cases")
-def get_cases(status: str = "Open", session: Session = Depends(get_session)):
-    return session.exec(select(Case).where(Case.status == status)).all()
+def list_cases(status: str = "Open", session: Session = Depends(get_session)):
+    stmt = select(Case).where(Case.status == status).order_by(Case.created_at.desc())
+    return session.exec(stmt).all()
+
+
+@app.get("/cases/{case_id}")
+def get_case(case_id: str, session: Session = Depends(get_session)):
+    c = session.get(Case, case_id)
+    if not c:
+        raise HTTPException(status_code=404, detail="Case not found")
+    return c
 
 
 @app.patch("/cases/{case_id}")
-def update_case(case_id: str, status: str, session: Session = Depends(get_session)):
-    case = session.get(Case, case_id)
-    case.status = status
+def update_case(
+    case_id: str,
+    status: str | None = None,
+    assignee: str | None = None,
+    analyst_notes: str | None = None,
+    session: Session = Depends(get_session),
+):
+    c = session.get(Case, case_id)
+    if not c:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    if status:
+        c.status = status
+    if assignee is not None:
+        c.assignee = assignee
+    if analyst_notes is not None:
+        c.analyst_notes = analyst_notes
+
+    session.add(c)
     session.commit()
-    return case
+    session.refresh(c)
+
+    return c
