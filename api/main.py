@@ -64,6 +64,7 @@ def lookup(number: str, session: Session = Depends(get_session)):
         "found": True,
         "current_label": record.current_label,
         "risk_level": record.risk_level,
+        "confidence": min(record.report_count_total * 20, 100),
         "tags": record.tags,
         "report_count_total": record.report_count_total,
         "report_count_7d": record.report_count_7d,
