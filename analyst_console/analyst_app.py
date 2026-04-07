@@ -40,10 +40,6 @@ def safe_get_json(url, params=None, method="GET", json_body=None):
         return None, str(e)
 
 
-def ensure_list(data):
-    return data if isinstance(data, list) else []
-
-
 def ensure_dict_list(data):
     if not isinstance(data, list):
         return []
@@ -65,10 +61,18 @@ def fetch_reports(status=None):
     return ensure_dict_list(data), None
 
 
-def fetch_cases():
-    data, err = safe_get_json(f"{api_base}/cases")
+def fetch_cases(status=None):
+    if status:
+        data, err = safe_get_json(
+            f"{api_base}/cases",
+            params={"status": status}
+        )
+    else:
+        data, err = safe_get_json(f"{api_base}/cases")
+
     if err:
         return [], err
+
     return ensure_dict_list(data), None
 
 
@@ -119,6 +123,19 @@ def normalize_report_row(r):
         "created_at": r.get("created_at", ""),
         "message_sanitized": r.get("message_sanitized", ""),
         "moderator_notes": r.get("moderator_notes", ""),
+        "reporter_fingerprint": r.get("reporter_fingerprint", ""),
+    }
+
+
+def normalize_case_row(c):
+    return {
+        "id": c.get("id", ""),
+        "title": c.get("title", "Untitled"),
+        "description": c.get("description", ""),
+        "status": c.get("status", "Unknown"),
+        "assignee": c.get("assignee", ""),
+        "analyst_notes": c.get("analyst_notes", ""),
+        "created_at": c.get("created_at", ""),
     }
 
 
@@ -134,21 +151,37 @@ def report_label(r):
 all_reports, reports_err = fetch_reports()
 pending_reports, pending_err = fetch_reports("Pending")
 approved_reports, approved_err = fetch_reports("Approved")
-open_cases, cases_err = fetch_cases()
+rejected_reports, rejected_err = fetch_reports("Rejected")
+
+open_cases, open_cases_err = fetch_cases("Open")
+in_progress_cases, in_progress_cases_err = fetch_cases("In Progress")
+closed_cases, closed_cases_err = fetch_cases("Closed")
 
 all_reports = [normalize_report_row(r) for r in all_reports]
 pending_reports = [normalize_report_row(r) for r in pending_reports]
 approved_reports = [normalize_report_row(r) for r in approved_reports]
+rejected_reports = [normalize_report_row(r) for r in rejected_reports]
+
+open_cases = [normalize_case_row(c) for c in open_cases]
+in_progress_cases = [normalize_case_row(c) for c in in_progress_cases]
+closed_cases = [normalize_case_row(c) for c in closed_cases]
+
+all_cases = open_cases + in_progress_cases + closed_cases
 
 # ---------------- DASHBOARD METRICS ----------------
 
 st.subheader("📊 SOC Overview")
 
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Total Reports", len(all_reports))
-col2.metric("Pending Reports", len(pending_reports))
-col3.metric("Approved Reports", len(approved_reports))
-col4.metric("Open Cases", len(open_cases))
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Total Reports", len(all_reports))
+m2.metric("Pending Reports", len(pending_reports))
+m3.metric("Approved Reports", len(approved_reports))
+m4.metric("Rejected Reports", len(rejected_reports))
+
+m5, m6, m7 = st.columns(3)
+m5.metric("Open Cases", len(open_cases))
+m6.metric("In Progress Cases", len(in_progress_cases))
+m7.metric("Closed Cases", len(closed_cases))
 
 if reports_err:
     st.warning(f"Reports endpoint issue: {reports_err}")
@@ -156,8 +189,14 @@ if pending_err:
     st.warning(f"Pending reports endpoint issue: {pending_err}")
 if approved_err:
     st.warning(f"Approved reports endpoint issue: {approved_err}")
-if cases_err:
-    st.warning(f"Cases endpoint issue: {cases_err}")
+if rejected_err:
+    st.warning(f"Rejected reports endpoint issue: {rejected_err}")
+if open_cases_err:
+    st.warning(f"Open cases endpoint issue: {open_cases_err}")
+if in_progress_cases_err:
+    st.warning(f"In Progress cases endpoint issue: {in_progress_cases_err}")
+if closed_cases_err:
+    st.warning(f"Closed cases endpoint issue: {closed_cases_err}")
 
 st.markdown("---")
 
@@ -184,8 +223,11 @@ with tab1:
         reason_options = sorted({r.get("reason", "N/A") for r in pending_reports})
         channel_options = sorted({r.get("channel", "N/A") for r in pending_reports})
 
-        reason_filter = st.selectbox("Filter by Reason", ["All"] + reason_options)
-        channel_filter = st.selectbox("Filter by Channel", ["All"] + channel_options)
+        c1, c2 = st.columns(2)
+        with c1:
+            reason_filter = st.selectbox("Filter by Reason", ["All"] + reason_options)
+        with c2:
+            channel_filter = st.selectbox("Filter by Channel", ["All"] + channel_options)
 
         filtered_reports = []
         for r in pending_reports:
@@ -321,57 +363,114 @@ with tab2:
 with tab3:
     st.subheader("Case Queue")
 
-    if not open_cases:
-        st.info("No open cases")
+    case_status_filter = st.selectbox(
+        "Filter Cases by Status",
+        ["All", "Open", "In Progress", "Closed"]
+    )
+
+    if case_status_filter == "All":
+        cases_to_show = all_cases
+    elif case_status_filter == "Open":
+        cases_to_show = open_cases
+    elif case_status_filter == "In Progress":
+        cases_to_show = in_progress_cases
     else:
-        for c in open_cases:
-            with st.container():
-                st.markdown("---")
-                st.markdown(f"### Case: {c.get('title', c.get('id', 'Untitled'))}")
-                st.markdown(f"**ID:** {c.get('id', 'N/A')}")
-                st.markdown(f"**Status:** {c.get('status', 'N/A')}")
-                st.markdown(f"**Assignee:** {c.get('assignee', '')}")
-                st.markdown(f"**Created At:** {c.get('created_at', '')}")
+        cases_to_show = closed_cases
 
-                if c.get("description"):
-                    st.markdown("**Description:**")
-                    st.write(c["description"])
+    if not cases_to_show:
+        st.info("No cases found for this status")
+    else:
+        case_rows = []
+        for c in cases_to_show:
+            case_rows.append({
+                "ID": c.get("id"),
+                "Title": c.get("title"),
+                "Status": c.get("status"),
+                "Assignee": c.get("assignee"),
+                "Created At": c.get("created_at"),
+            })
 
-                current_notes = c.get("analyst_notes", "") or ""
-                notes = st.text_area(
-                    "Update Notes",
-                    value=current_notes,
-                    key=f"notes_{c.get('id')}"
+        st.dataframe(pd.DataFrame(case_rows), use_container_width=True)
+
+        st.markdown("### Case Details")
+
+        selected_case = st.selectbox(
+            "Select Case",
+            cases_to_show,
+            format_func=lambda x: f"{x.get('title', 'Untitled')} | {x.get('status', 'Unknown')}"
+        )
+
+        st.markdown(f"**ID:** {selected_case.get('id', 'N/A')}")
+        st.markdown(f"**Title:** {selected_case.get('title', 'Untitled')}")
+        st.markdown(f"**Status:** {selected_case.get('status', 'Unknown')}")
+        st.markdown(f"**Assignee:** {selected_case.get('assignee', '')}")
+        st.markdown(f"**Created At:** {selected_case.get('created_at', '')}")
+
+        if selected_case.get("description"):
+            st.markdown("**Description:**")
+            st.write(selected_case["description"])
+
+        current_notes = selected_case.get("analyst_notes", "") or ""
+        updated_assignee = st.text_input(
+            "Assignee",
+            value=selected_case.get("assignee", "") or "",
+            key=f"assignee_{selected_case.get('id')}"
+        )
+        notes = st.text_area(
+            "Analyst Notes",
+            value=current_notes,
+            key=f"notes_{selected_case.get('id')}"
+        )
+
+        c1, c2, c3, c4 = st.columns(4)
+
+        with c1:
+            if st.button("Save Notes", key=f"save_{selected_case.get('id')}"):
+                _, err = update_case(
+                    selected_case.get("id"),
+                    {"analyst_notes": notes, "assignee": updated_assignee}
                 )
+                if err:
+                    st.error(err)
+                else:
+                    st.success("Case updated")
+                    st.rerun()
 
-                col1, col2, col3 = st.columns(3)
+        with c2:
+            if st.button("Mark Open", key=f"open_{selected_case.get('id')}"):
+                _, err = update_case(
+                    selected_case.get("id"),
+                    {"status": "Open", "assignee": updated_assignee, "analyst_notes": notes}
+                )
+                if err:
+                    st.error(err)
+                else:
+                    st.success("Case marked Open")
+                    st.rerun()
 
-                with col1:
-                    if st.button("Save Notes", key=f"save_{c.get('id')}"):
-                        _, err = update_case(c.get("id"), {"analyst_notes": notes})
-                        if err:
-                            st.error(err)
-                        else:
-                            st.success("Case notes updated")
-                            st.rerun()
+        with c3:
+            if st.button("Mark In Progress", key=f"progress_{selected_case.get('id')}"):
+                _, err = update_case(
+                    selected_case.get("id"),
+                    {"status": "In Progress", "assignee": updated_assignee, "analyst_notes": notes}
+                )
+                if err:
+                    st.error(err)
+                else:
+                    st.success("Case marked In Progress")
+                    st.rerun()
 
-                with col2:
-                    if st.button("Mark In Progress", key=f"progress_{c.get('id')}"):
-                        _, err = update_case(c.get("id"), {"status": "In Progress"})
-                        if err:
-                            st.error(err)
-                        else:
-                            st.success("Case updated")
-                            st.rerun()
-
-                with col3:
-                    if st.button("Close Case", key=f"close_{c.get('id')}"):
-                        _, err = update_case(c.get("id"), {"status": "Closed"})
-                        if err:
-                            st.error(err)
-                        else:
-                            st.success("Case closed")
-                            st.rerun()
+        with c4:
+            if st.button("Close Case", key=f"close_{selected_case.get('id')}"):
+                _, err = update_case(
+                    selected_case.get("id"),
+                    {"status": "Closed", "assignee": updated_assignee, "analyst_notes": notes}
+                )
+                if err:
+                    st.error(err)
+                else:
+                    st.success("Case marked Closed")
+                    st.rerun()
 
 # ===============================
 # 🔎 LOOKUP
@@ -434,9 +533,44 @@ with tab5:
     else:
         st.json(raw_reports)
 
-    st.markdown("### Raw /cases response")
-    raw_cases, raw_cases_err = fetch_cases()
-    if raw_cases_err:
-        st.error(raw_cases_err)
+    st.markdown("### Raw /admin/reports?status=Pending response")
+    raw_pending, raw_pending_err = fetch_reports("Pending")
+    if raw_pending_err:
+        st.error(raw_pending_err)
     else:
-        st.json(raw_cases)
+        st.json(raw_pending)
+
+    st.markdown("### Raw /admin/reports?status=Approved response")
+    raw_approved, raw_approved_err = fetch_reports("Approved")
+    if raw_approved_err:
+        st.error(raw_approved_err)
+    else:
+        st.json(raw_approved)
+
+    st.markdown("### Raw /admin/reports?status=Rejected response")
+    raw_rejected, raw_rejected_err = fetch_reports("Rejected")
+    if raw_rejected_err:
+        st.error(raw_rejected_err)
+    else:
+        st.json(raw_rejected)
+
+    st.markdown("### Raw Open Cases")
+    raw_open_cases, raw_open_cases_err = fetch_cases("Open")
+    if raw_open_cases_err:
+        st.error(raw_open_cases_err)
+    else:
+        st.json(raw_open_cases)
+
+    st.markdown("### Raw In Progress Cases")
+    raw_in_progress_cases, raw_in_progress_cases_err = fetch_cases("In Progress")
+    if raw_in_progress_cases_err:
+        st.error(raw_in_progress_cases_err)
+    else:
+        st.json(raw_in_progress_cases)
+
+    st.markdown("### Raw Closed Cases")
+    raw_closed_cases, raw_closed_cases_err = fetch_cases("Closed")
+    if raw_closed_cases_err:
+        st.error(raw_closed_cases_err)
+    else:
+        st.json(raw_closed_cases)
