@@ -103,6 +103,11 @@ def report_number(
     number_record.report_count_30d = (number_record.report_count_30d or 0) + 1
     number_record.last_reported_at = datetime.utcnow()
 
+    if number_record.report_count_total >= 5:
+        number_record.risk_level = "Medium"
+    if number_record.report_count_total >= 15:
+        number_record.risk_level = "High"
+        
     session.add(number_record)
     session.commit()
     session.refresh(report)
