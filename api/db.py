@@ -1,12 +1,19 @@
 import os
 from sqlmodel import SQLModel, create_engine, Session
-from api.models import Case, Number, Report
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dev.db")
-engine = create_engine(DATABASE_URL, echo=False)
+
+connect_args = {}
+if DATABASE_URL.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+
+engine = create_engine(DATABASE_URL, echo=False, connect_args=connect_args)
+
 
 def init_db():
+    from api.models import Case, Number, Report
     SQLModel.metadata.create_all(engine)
+
 
 def get_session():
     with Session(engine) as session:
