@@ -6,7 +6,7 @@ from sqlmodel import Session, select
 from api.normalize import normalize_ng_number
 from api.db import init_db, get_session
 from api.models import Case, Number, Report
-from api.limiter import check_rate_limit
+from api.limiter import check_rate_limit, generate_fingerprint
 from api.auth import verify_admin
 
 app = FastAPI(title="PhishTriage API", version="0.5.0")
@@ -110,10 +110,12 @@ def report_number(
     reason: str,
     channel: str,
     message: str | None = None,
-    reporter_fingerprint: str | None = None,
     session: Session = Depends(get_session),
 ):
     check_rate_limit(request)
+
+    # generate fingerprint server-side — user cannot fake this
+    reporter_fingerprint = generate_fingerprint(request)
 
     if reason.lower().strip() not in VALID_REASONS:
         raise HTTPException(
@@ -134,21 +136,21 @@ def report_number(
     if message:
         message = sanitize_message(message)
 
-    if reporter_fingerprint:
-        cutoff = datetime.utcnow() - timedelta(days=30)
-        existing = session.exec(
-            select(Report).where(
-                Report.number_e164 == n,
-                Report.reporter_fingerprint == reporter_fingerprint,
-                Report.created_at >= cutoff,
-            )
-        ).first()
+    # duplicate protection using server-side fingerprint
+    cutoff = datetime.utcnow() - timedelta(days=30)
+    existing = session.exec(
+        select(Report).where(
+            Report.number_e164 == n,
+            Report.reporter_fingerprint == reporter_fingerprint,
+            Report.created_at >= cutoff,
+        )
+    ).first()
 
-        if existing:
-            raise HTTPException(
-                status_code=400,
-                detail="You have already reported this number recently"
-            )
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail="You have already reported this number recently"
+        )
 
     report = Report(
         number_e164=n,
