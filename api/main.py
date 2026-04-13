@@ -1,11 +1,11 @@
 from datetime import datetime, timedelta
 import re
 from fastapi import FastAPI, Depends, HTTPException, Request
-from sqlmodel import Session, select
+from sqlmodel import Session, select, SQLModel
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.normalize import normalize_ng_number
-from api.db import init_db, get_session
+from api.db import init_db, get_session, engine
 from api.models import Case, Number, Report
 from api.limiter import check_rate_limit, generate_fingerprint
 from api.auth import verify_admin
@@ -42,6 +42,13 @@ def sanitize_message(text: str) -> str:
 @app.on_event("startup")
 def on_startup():
     init_db()
+
+
+@app.post("/reset-db")
+def reset_db():
+    SQLModel.metadata.drop_all(engine)
+    SQLModel.metadata.create_all(engine)
+    return {"message": "Database reset successful"}
 
 
 @app.get("/")
