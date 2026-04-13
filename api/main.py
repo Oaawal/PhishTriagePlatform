@@ -277,7 +277,54 @@ def alerts(session: Session = Depends(get_session)):
         for n in numbers
     ]
 
+# ---------------- REPORT-CASE LINKING ----------------
 
+@app.patch("/reports/{report_id}/link-case")
+def link_report_to_case(
+    report_id: str,
+    case_id: str,
+    session: Session = Depends(get_session),
+):
+    report = session.get(Report, report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    case = session.get(Case, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    report.case_id = case_id
+    session.add(report)
+    session.commit()
+    session.refresh(report)
+
+    return {
+        "message": "Report linked to case",
+        "report_id": report.id,
+        "case_id": case_id,
+    }
+
+
+# ---------------- NUMBER REPORT HISTORY ----------------
+
+@app.get("/numbers/{number}/reports")
+def reports_for_number(number: str, session: Session = Depends(get_session)):
+    n = normalize_ng_number(number)
+    if not n:
+        raise HTTPException(status_code=400, detail="Invalid phone number format")
+
+    reports = session.exec(
+        select(Report)
+        .where(Report.number_e164 == n)
+        .order_by(Report.created_at.desc())
+    ).all()
+
+    return {
+        "number": n,
+        "total": len(reports),
+        "reports": reports,
+    }
+    
 # ---------------- CASES ----------------
 
 @app.post("/cases")
