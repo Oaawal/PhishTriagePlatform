@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 import re
 from fastapi import FastAPI, Depends, HTTPException, Request
 from sqlmodel import Session, select
+from fastapi.middleware.cors import CORSMiddleware
 
 from api.normalize import normalize_ng_number
 from api.db import init_db, get_session
@@ -11,6 +12,13 @@ from api.auth import verify_admin
 
 app = FastAPI(title="PhishTriage API", version="0.5.0")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 VALID_REASONS = {
     "otp scam",
     "bank scam",
