@@ -75,6 +75,7 @@ def lookup(number: str, session: Session = Depends(get_session)):
         "report_count_30d": record.report_count_30d,
         "last_reported_at": record.last_reported_at,
         "trend": trend,
+        "is_monitored": record.is_monitored,
     }
 
 
@@ -277,6 +278,7 @@ def alerts(session: Session = Depends(get_session)):
         for n in numbers
     ]
 
+
 # ---------------- REPORT-CASE LINKING ----------------
 
 @app.patch("/reports/{report_id}/link-case")
@@ -324,7 +326,88 @@ def reports_for_number(number: str, session: Session = Depends(get_session)):
         "total": len(reports),
         "reports": reports,
     }
-    
+
+
+# ---------------- MONITORING ----------------
+
+@app.patch("/numbers/{number}/monitor")
+def monitor_number(
+    number: str,
+    monitored_by: str | None = None,
+    session: Session = Depends(get_session),
+):
+    n = normalize_ng_number(number)
+    if not n:
+        raise HTTPException(status_code=400, detail="Invalid phone number format")
+
+    record = session.get(Number, n)
+    if not record:
+        raise HTTPException(status_code=404, detail="Number not found")
+
+    record.is_monitored = True
+    record.monitored_since = datetime.utcnow()
+    record.monitored_by = monitored_by
+
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+
+    return {
+        "message": "Number is now being monitored",
+        "number": n,
+        "monitored_since": record.monitored_since,
+        "monitored_by": record.monitored_by,
+    }
+
+
+@app.patch("/numbers/{number}/unmonitor")
+def unmonitor_number(
+    number: str,
+    session: Session = Depends(get_session),
+):
+    n = normalize_ng_number(number)
+    if not n:
+        raise HTTPException(status_code=400, detail="Invalid phone number format")
+
+    record = session.get(Number, n)
+    if not record:
+        raise HTTPException(status_code=404, detail="Number not found")
+
+    record.is_monitored = False
+    record.monitored_since = None
+    record.monitored_by = None
+
+    session.add(record)
+    session.commit()
+
+    return {
+        "message": "Number removed from monitoring",
+        "number": n,
+    }
+
+
+@app.get("/numbers/monitored")
+def monitored_numbers(session: Session = Depends(get_session)):
+    stmt = (
+        select(Number)
+        .where(Number.is_monitored == True)
+        .order_by(Number.monitored_since.desc())
+    )
+    numbers = session.exec(stmt).all()
+
+    return [
+        {
+            "number": n.number_e164,
+            "risk_level": n.risk_level,
+            "label": n.current_label,
+            "monitored_since": n.monitored_since,
+            "monitored_by": n.monitored_by,
+            "report_count_total": n.report_count_total,
+        }
+        for n in numbers
+    ]
+
+
 # ---------------- CASES ----------------
 
 @app.post("/cases")
