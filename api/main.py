@@ -1,12 +1,34 @@
 from datetime import datetime, timedelta
-from fastapi import FastAPI, Depends, HTTPException
+import re
+from fastapi import FastAPI, Depends, HTTPException, Request
 from sqlmodel import Session, select
 
 from api.normalize import normalize_ng_number
 from api.db import init_db, get_session
 from api.models import Case, Number, Report
+from api.limiter import check_rate_limit
 
 app = FastAPI(title="PhishTriage API", version="0.5.0")
+
+VALID_REASONS = {
+    "otp scam",
+    "bank scam",
+    "loan scam",
+    "impersonation",
+    "investment scam",
+    "romance scam",
+    "job scam",
+    "other",
+}
+
+VALID_CHANNELS = {"sms", "call", "whatsapp", "telegram", "email", "other"}
+
+
+def sanitize_message(text: str) -> str:
+    # strip html tags and limit length
+    text = re.sub(r"<[^>]+>", "", text)
+    text = text.strip()
+    return text[:1000]
 
 
 @app.on_event("startup")
@@ -85,6 +107,7 @@ def lookup(number: str, session: Session = Depends(get_session)):
 
 @app.post("/report")
 def report_number(
+    request: Request,
     number: str,
     reason: str,
     channel: str,
@@ -92,9 +115,29 @@ def report_number(
     reporter_fingerprint: str | None = None,
     session: Session = Depends(get_session),
 ):
+    # rate limiting
+    check_rate_limit(request)
+
+    # input validation
+    if reason.lower().strip() not in VALID_REASONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid reason. Must be one of: {', '.join(sorted(VALID_REASONS))}"
+        )
+
+    if channel.lower().strip() not in VALID_CHANNELS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid channel. Must be one of: {', '.join(sorted(VALID_CHANNELS))}"
+        )
+
     n = normalize_ng_number(number)
     if not n:
         raise HTTPException(status_code=400, detail="Invalid phone number format")
+
+    # sanitize message
+    if message:
+        message = sanitize_message(message)
 
     # duplicate protection: one report per number per 30 days per fingerprint
     if reporter_fingerprint:
@@ -115,8 +158,8 @@ def report_number(
 
     report = Report(
         number_e164=n,
-        reason=reason,
-        channel=channel,
+        reason=reason.strip(),
+        channel=channel.strip(),
         message_sanitized=message,
         status="Pending",
         reporter_fingerprint=reporter_fingerprint,
