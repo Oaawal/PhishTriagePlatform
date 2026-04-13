@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException
 from sqlmodel import Session, select
 
@@ -93,18 +93,22 @@ def report_number(
     if not n:
         raise HTTPException(status_code=400, detail="Invalid phone number format")
 
-    # basic duplicate protection
+    # duplicate protection: one report per number per 30 days per fingerprint
     if reporter_fingerprint:
+        cutoff = datetime.utcnow() - timedelta(days=30)
         existing = session.exec(
             select(Report).where(
                 Report.number_e164 == n,
                 Report.reporter_fingerprint == reporter_fingerprint,
-                Report.status == "Pending",
+                Report.created_at >= cutoff,
             )
         ).first()
 
         if existing:
-            raise HTTPException(status_code=400, detail="Duplicate report detected")
+            raise HTTPException(
+                status_code=400,
+                detail="You have already reported this number recently"
+            )
 
     report = Report(
         number_e164=n,
@@ -175,16 +179,33 @@ def moderate_report(
 
     report.status = "Approved" if action == "approve" else "Rejected"
 
-    # update number only if approved
     if action == "approve":
         number = session.get(Number, report.number_e164)
 
-        number.report_count_total = (number.report_count_total or 0) + 1
-        number.report_count_7d = (number.report_count_7d or 0) + 1
-        number.report_count_30d = (number.report_count_30d or 0) + 1
-        number.last_reported_at = datetime.utcnow()
+        now = datetime.utcnow()
+        cutoff_7d = now - timedelta(days=7)
+        cutoff_30d = now - timedelta(days=30)
 
-        # risk scoring
+        # recalculate counts from approved reports (accurate, no drift)
+        approved_reports = session.exec(
+            select(Report).where(
+                Report.number_e164 == report.number_e164,
+                Report.status == "Approved",
+            )
+        ).all()
+
+        number.report_count_total = len(approved_reports)
+        number.report_count_7d = sum(
+            1 for r in approved_reports
+            if r.created_at and r.created_at >= cutoff_7d
+        )
+        number.report_count_30d = sum(
+            1 for r in approved_reports
+            if r.created_at and r.created_at >= cutoff_30d
+        )
+        number.last_reported_at = now
+
+        # risk scoring based on recalculated total
         if number.report_count_total >= 15:
             risk = "High"
         elif number.report_count_total >= 5:
@@ -204,7 +225,6 @@ def moderate_report(
             number.tags = "loan,fraud"
 
         number.risk_level = risk
-
         session.add(number)
 
     session.add(report)
