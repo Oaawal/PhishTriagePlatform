@@ -50,6 +50,7 @@ def lookup(number: str, session: Session = Depends(get_session)):
 
     if not record:
         return {
+            "success": True,
             "found": False,
             "number": n,
             "message": "No reports or profile found",
@@ -64,16 +65,17 @@ def lookup(number: str, session: Session = Depends(get_session)):
     confidence = min(50 + (record.report_count_total or 0) * 5, 100)
 
     return {
+        "success": True,
         "found": True,
         "number": record.number_e164,
         "risk_level": record.risk_level,
         "confidence": confidence,
-        "current_label": record.current_label,
-        "tags": record.tags,
-        "report_count_total": record.report_count_total,
-        "report_count_7d": record.report_count_7d,
-        "report_count_30d": record.report_count_30d,
-        "last_reported_at": record.last_reported_at,
+        "current_label": record.current_label or "Unknown",
+        "tags": record.tags or "",
+        "report_count_total": record.report_count_total or 0,
+        "report_count_7d": record.report_count_7d or 0,
+        "report_count_30d": record.report_count_30d or 0,
+        "last_reported_at": record.last_reported_at.isoformat() if record.last_reported_at else None,
         "trend": trend,
         "is_monitored": record.is_monitored,
     }
@@ -139,6 +141,7 @@ def report_number(
     session.refresh(report)
 
     return {
+        "success": True,
         "message": "Report submitted successfully",
         "report_id": report.id,
         "status": report.status,
@@ -236,6 +239,7 @@ def moderate_report(
     session.refresh(report)
 
     return {
+        "success": True,
         "message": "Report updated",
         "status": report.status,
         "report_id": report.id,
@@ -265,18 +269,23 @@ def alerts(session: Session = Depends(get_session)):
     )
     numbers = session.exec(stmt).all()
 
-    return [
-        {
-            "number": n.number_e164,
-            "risk_level": n.risk_level,
-            "label": n.current_label,
-            "report_count_total": n.report_count_total,
-            "report_count_7d": n.report_count_7d,
-            "last_reported_at": n.last_reported_at,
-            "tags": n.tags,
-        }
-        for n in numbers
-    ]
+    return {
+        "success": True,
+        "count": len(numbers),
+        "alerts": [
+            {
+                "number": n.number_e164,
+                "risk_level": n.risk_level,
+                "label": n.current_label or "Unknown",
+                "report_count_total": n.report_count_total,
+                "report_count_7d": n.report_count_7d,
+                "last_reported_at": n.last_reported_at.isoformat() if n.last_reported_at else None,
+                "tags": n.tags or "",
+                "trend": "rising" if (n.report_count_7d or 0) >= 5 else "stable",
+            }
+            for n in numbers
+        ],
+    }
 
 
 # ---------------- REPORT-CASE LINKING ----------------
@@ -301,6 +310,7 @@ def link_report_to_case(
     session.refresh(report)
 
     return {
+        "success": True,
         "message": "Report linked to case",
         "report_id": report.id,
         "case_id": case_id,
@@ -322,6 +332,7 @@ def reports_for_number(number: str, session: Session = Depends(get_session)):
     ).all()
 
     return {
+        "success": True,
         "number": n,
         "total": len(reports),
         "reports": reports,
@@ -353,9 +364,10 @@ def monitor_number(
     session.refresh(record)
 
     return {
+        "success": True,
         "message": "Number is now being monitored",
         "number": n,
-        "monitored_since": record.monitored_since,
+        "monitored_since": record.monitored_since.isoformat(),
         "monitored_by": record.monitored_by,
     }
 
@@ -381,6 +393,7 @@ def unmonitor_number(
     session.commit()
 
     return {
+        "success": True,
         "message": "Number removed from monitoring",
         "number": n,
     }
@@ -395,17 +408,21 @@ def monitored_numbers(session: Session = Depends(get_session)):
     )
     numbers = session.exec(stmt).all()
 
-    return [
-        {
-            "number": n.number_e164,
-            "risk_level": n.risk_level,
-            "label": n.current_label,
-            "monitored_since": n.monitored_since,
-            "monitored_by": n.monitored_by,
-            "report_count_total": n.report_count_total,
-        }
-        for n in numbers
-    ]
+    return {
+        "success": True,
+        "count": len(numbers),
+        "numbers": [
+            {
+                "number": n.number_e164,
+                "risk_level": n.risk_level,
+                "label": n.current_label or "Unknown",
+                "monitored_since": n.monitored_since.isoformat() if n.monitored_since else None,
+                "monitored_by": n.monitored_by,
+                "report_count_total": n.report_count_total,
+            }
+            for n in numbers
+        ],
+    }
 
 
 # ---------------- CASES ----------------
