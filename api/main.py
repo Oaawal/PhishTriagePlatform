@@ -7,6 +7,7 @@ from api.normalize import normalize_ng_number
 from api.db import init_db, get_session
 from api.models import Case, Number, Report
 from api.limiter import check_rate_limit
+from api.auth import verify_admin
 
 app = FastAPI(title="PhishTriage API", version="0.5.0")
 
@@ -25,7 +26,6 @@ VALID_CHANNELS = {"sms", "call", "whatsapp", "telegram", "email", "other"}
 
 
 def sanitize_message(text: str) -> str:
-    # strip html tags and limit length
     text = re.sub(r"<[^>]+>", "", text)
     text = text.strip()
     return text[:1000]
@@ -78,12 +78,10 @@ def lookup(number: str, session: Session = Depends(get_session)):
             "message": "No reports or profile found",
         }
 
-    # trend logic
     trend = "stable"
     if record.report_count_7d and record.report_count_7d >= 5:
         trend = "rising"
 
-    # confidence scoring
     confidence = min(50 + (record.report_count_total or 0) * 5, 100)
 
     return {
@@ -115,10 +113,8 @@ def report_number(
     reporter_fingerprint: str | None = None,
     session: Session = Depends(get_session),
 ):
-    # rate limiting
     check_rate_limit(request)
 
-    # input validation
     if reason.lower().strip() not in VALID_REASONS:
         raise HTTPException(
             status_code=400,
@@ -135,11 +131,9 @@ def report_number(
     if not n:
         raise HTTPException(status_code=400, detail="Invalid phone number format")
 
-    # sanitize message
     if message:
         message = sanitize_message(message)
 
-    # duplicate protection: one report per number per 30 days per fingerprint
     if reporter_fingerprint:
         cutoff = datetime.utcnow() - timedelta(days=30)
         existing = session.exec(
@@ -167,7 +161,6 @@ def report_number(
 
     session.add(report)
 
-    # ensure number exists
     number_record = session.get(Number, n)
     if not number_record:
         number_record = Number(
@@ -200,7 +193,7 @@ def list_reports(session: Session = Depends(get_session)):
     return session.exec(stmt).all()
 
 
-@app.get("/admin/reports")
+@app.get("/admin/reports", dependencies=[Depends(verify_admin)])
 def list_admin_reports(
     status: str = "Pending",
     session: Session = Depends(get_session),
@@ -211,7 +204,7 @@ def list_admin_reports(
 
 # ---------------- MODERATION ----------------
 
-@app.patch("/admin/reports/{report_id}")
+@app.patch("/admin/reports/{report_id}", dependencies=[Depends(verify_admin)])
 def moderate_report(
     report_id: str,
     action: str,
@@ -233,7 +226,6 @@ def moderate_report(
         cutoff_7d = now - timedelta(days=7)
         cutoff_30d = now - timedelta(days=30)
 
-        # recalculate counts from approved reports (accurate, no drift)
         approved_reports = session.exec(
             select(Report).where(
                 Report.number_e164 == report.number_e164,
@@ -252,7 +244,6 @@ def moderate_report(
         )
         number.last_reported_at = now
 
-        # risk scoring based on recalculated total
         if number.report_count_total >= 15:
             risk = "High"
         elif number.report_count_total >= 5:
@@ -260,7 +251,6 @@ def moderate_report(
         else:
             risk = "Low"
 
-        # label and tag assignment with minimum threshold for High
         reason = report.reason.lower().strip()
 
         if reason in ["otp scam", "bank scam"]:
@@ -333,7 +323,7 @@ def alerts(session: Session = Depends(get_session)):
 
 # ---------------- REPORT-CASE LINKING ----------------
 
-@app.patch("/reports/{report_id}/link-case")
+@app.patch("/reports/{report_id}/link-case", dependencies=[Depends(verify_admin)])
 def link_report_to_case(
     report_id: str,
     case_id: str,
@@ -384,7 +374,7 @@ def reports_for_number(number: str, session: Session = Depends(get_session)):
 
 # ---------------- MONITORING ----------------
 
-@app.patch("/numbers/{number}/monitor")
+@app.patch("/numbers/{number}/monitor", dependencies=[Depends(verify_admin)])
 def monitor_number(
     number: str,
     monitored_by: str | None = None,
@@ -415,7 +405,7 @@ def monitor_number(
     }
 
 
-@app.patch("/numbers/{number}/unmonitor")
+@app.patch("/numbers/{number}/unmonitor", dependencies=[Depends(verify_admin)])
 def unmonitor_number(
     number: str,
     session: Session = Depends(get_session),
@@ -442,7 +432,7 @@ def unmonitor_number(
     }
 
 
-@app.get("/numbers/monitored")
+@app.get("/numbers/monitored", dependencies=[Depends(verify_admin)])
 def monitored_numbers(session: Session = Depends(get_session)):
     stmt = (
         select(Number)
@@ -470,7 +460,7 @@ def monitored_numbers(session: Session = Depends(get_session)):
 
 # ---------------- CASES ----------------
 
-@app.post("/cases")
+@app.post("/cases", dependencies=[Depends(verify_admin)])
 def create_case(case: Case, session: Session = Depends(get_session)):
     session.add(case)
     session.commit()
@@ -478,13 +468,13 @@ def create_case(case: Case, session: Session = Depends(get_session)):
     return case
 
 
-@app.get("/cases")
+@app.get("/cases", dependencies=[Depends(verify_admin)])
 def list_cases(status: str = "Open", session: Session = Depends(get_session)):
     stmt = select(Case).where(Case.status == status).order_by(Case.created_at.desc())
     return session.exec(stmt).all()
 
 
-@app.get("/cases/{case_id}")
+@app.get("/cases/{case_id}", dependencies=[Depends(verify_admin)])
 def get_case(case_id: str, session: Session = Depends(get_session)):
     c = session.get(Case, case_id)
     if not c:
@@ -492,7 +482,7 @@ def get_case(case_id: str, session: Session = Depends(get_session)):
     return c
 
 
-@app.patch("/cases/{case_id}")
+@app.patch("/cases/{case_id}", dependencies=[Depends(verify_admin)])
 def update_case(
     case_id: str,
     status: str | None = None,
