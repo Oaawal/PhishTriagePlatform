@@ -5,7 +5,7 @@ from sqlmodel import Session, select, SQLModel
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.normalize import normalize_ng_number
-from api.db import init_db, get_session, engine
+from api.db import init_db, get_session
 from api.models import Case, Number, Report
 from api.limiter import check_rate_limit, generate_fingerprint
 from api.auth import verify_admin
@@ -19,6 +19,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 VALID_REASONS = {
     "otp scam",
     "bank scam",
@@ -42,13 +43,6 @@ def sanitize_message(text: str) -> str:
 @app.on_event("startup")
 def on_startup():
     init_db()
-
-
-@app.post("/reset-db")
-def reset_db():
-    SQLModel.metadata.drop_all(engine)
-    SQLModel.metadata.create_all(engine)
-    return {"message": "Database reset successful"}
 
 
 @app.get("/")
@@ -129,7 +123,6 @@ def report_number(
 ):
     check_rate_limit(request)
 
-    # generate fingerprint server-side — user cannot fake this
     reporter_fingerprint = generate_fingerprint(request)
 
     if reason.lower().strip() not in VALID_REASONS:
@@ -151,7 +144,6 @@ def report_number(
     if message:
         message = sanitize_message(message)
 
-    # duplicate protection using server-side fingerprint
     cutoff = datetime.utcnow() - timedelta(days=30)
     existing = session.exec(
         select(Report).where(
