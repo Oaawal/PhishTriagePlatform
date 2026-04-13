@@ -213,16 +213,19 @@ def moderate_report(
         else:
             risk = "Low"
 
-        # label assignment
+        # label and tag assignment with minimum threshold for High
         reason = report.reason.lower().strip()
 
         if reason in ["otp scam", "bank scam"]:
             number.current_label = report.reason.title()
             number.tags = "otp,bank"
-            risk = "High"
+            if number.report_count_total >= 3:
+                risk = "High"
         elif reason == "loan scam":
             number.current_label = "Loan Scam"
             number.tags = "loan,fraud"
+            if number.report_count_total >= 3:
+                risk = "High"
 
         number.risk_level = risk
         session.add(number)
@@ -250,7 +253,15 @@ def high_risk_numbers(session: Session = Depends(get_session)):
 
 @app.get("/alerts")
 def alerts(session: Session = Depends(get_session)):
-    stmt = select(Number).where(Number.risk_level == "High").order_by(Number.last_reported_at.desc())
+    cutoff_30d = datetime.utcnow() - timedelta(days=30)
+
+    stmt = (
+        select(Number)
+        .where(Number.risk_level == "High")
+        .where(Number.report_count_total >= 3)
+        .where(Number.last_reported_at >= cutoff_30d)
+        .order_by(Number.last_reported_at.desc())
+    )
     numbers = session.exec(stmt).all()
 
     return [
@@ -258,6 +269,8 @@ def alerts(session: Session = Depends(get_session)):
             "number": n.number_e164,
             "risk_level": n.risk_level,
             "label": n.current_label,
+            "report_count_total": n.report_count_total,
+            "report_count_7d": n.report_count_7d,
             "last_reported_at": n.last_reported_at,
             "tags": n.tags,
         }
