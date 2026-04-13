@@ -34,6 +34,9 @@ class Number(SQLModel, table=True):
     report_count_30d: int = Field(default=0)
     last_reported_at: Optional[datetime] = None
     source: str = Field(default="community")
+    is_monitored: bool = Field(default=False)
+    monitored_since: Optional[datetime] = None
+    monitored_by: Optional[str] = None
 
 
 class Report(SQLModel, table=True):
