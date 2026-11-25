@@ -123,4 +123,4 @@ class ScanLog(SQLModel, table=True):
     category: str
     domains: str = ""
     engine_version: str = ""
-    used_llm: bool = False
+    used_llm: bool = False  # unused; kept so existing databases keep working

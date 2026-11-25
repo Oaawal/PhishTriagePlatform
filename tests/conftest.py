@@ -10,8 +10,6 @@ os.environ["DATABASE_URL"] = os.getenv("TEST_DATABASE_URL", "sqlite:///./test.db
 os.environ["ADMIN_API_KEY"] = "test-admin-key"
 os.environ["WHATSAPP_APP_SECRET"] = "test-secret"
 os.environ["WHATSAPP_VERIFY_TOKEN"] = "verify-me"
-os.environ.pop("LLM_API_KEY", None)
-os.environ.pop("MIMO_API_KEY", None)
 
 import pytest  # noqa: E402
 

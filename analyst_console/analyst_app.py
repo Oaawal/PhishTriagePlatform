@@ -225,9 +225,8 @@ with tabs[5]:
     with right:
         st.subheader("Analyze a message")
         msg = st.text_area("Message text", height=150)
-        deep = st.checkbox("Ask LLM for a second opinion (if configured)")
         if st.button("Analyze") and msg.strip():
-            res = post("/analyze", {"message": msg, "channel": "console", "deep": deep})
+            res = post("/analyze", {"message": msg, "channel": "console"})
             if res:
                 st.metric("Risk", f"{res['risk']} ({res['score']}/100)")
                 st.write(f"**Category:** {res['category']}")

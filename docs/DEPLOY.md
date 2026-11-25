@@ -17,7 +17,6 @@
 | `ADMIN_API_KEY` | Long random string. Admin endpoints are **disabled** without it |
 | `FINGERPRINT_SALT` | Long random string. Do not change it after launch (dedupe depends on it) |
 | `TRUST_PROXY` | `true` |
-| `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL` | Optional. Same values you used for MiMo in PhishTriageScanner |
 | `WHATSAPP_*` | See WHATSAPP_SETUP.md |
 
 Generate random values with:
@@ -38,7 +37,7 @@ python -c "import secrets; print(secrets.token_urlsafe(40))"
 1. In Railway: **New Project > Deploy from GitHub repo > Oaawal/PhishTriagePlatform** (branch `main`).
 2. In the same project: **New > Database > PostgreSQL**.
 3. On the API service, **Variables**: add `DATABASE_URL=${{Postgres.DATABASE_URL}}`,
-   `ADMIN_API_KEY`, `FINGERPRINT_SALT`, `TRUST_PROXY=true`, and the optional `LLM_*` / `WHATSAPP_*` values.
+   `ADMIN_API_KEY`, `FINGERPRINT_SALT`, `TRUST_PROXY=true`, and the optional `WHATSAPP_*` values.
 4. **Settings > Networking > Generate Domain**, then open `https://<domain>/health`.
 5. Keep **Serverless** (app sleeping) **off**, so the first request is fast.
 

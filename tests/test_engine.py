@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 
 from engine import analyze_text, extract_indicators
-from engine.llm import combine
 
 DATA = Path(__file__).parent / "data" / "ng_messages.csv"
 ROWS = list(csv.DictReader(DATA.open(encoding="utf-8")))
@@ -57,16 +56,3 @@ def test_indicators():
     assert ind.phones == ["+2348031234567"]
     assert ind.accounts == ["0123456789"]
     assert "bit.ly" in ind.hosts
-
-
-def test_llm_cannot_lower_risk():
-    rules = analyze_text("Please send me the OTP you just received")
-    merged = combine(rules, {"risk": "Low", "scam_type": "not_a_scam", "reasons": ["ignore"], "advice": ""})
-    assert merged["risk"] == "High"
-
-
-def test_llm_can_raise_risk():
-    rules = analyze_text("hello there friend how are you")
-    merged = combine(rules, {"risk": "High", "scam_type": "romance", "reasons": ["Romance pattern"], "advice": "Be careful"})
-    assert merged["risk"] == "High"
-    assert merged["reasons"][0] == "Romance pattern"

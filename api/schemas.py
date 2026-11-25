@@ -7,7 +7,6 @@ from pydantic import BaseModel, Field
 class AnalyzeRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=5000)
     channel: str = Field(default="app", max_length=20)
-    deep: bool = False  # also ask the LLM for a second opinion
 
 
 class LegacyMessageRequest(BaseModel):

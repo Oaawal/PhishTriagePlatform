@@ -11,7 +11,7 @@ Scam detection and fraud intelligence for Nigeria. One backend serves:
 
 | Feature | Endpoint |
 |---|---|
-| Scam check of a message (rules engine, optional LLM second opinion) | `POST /analyze` |
+| Scam check of a message (Nigeria-focused rules engine) | `POST /analyze` |
 | Phone number reputation | `GET /lookup`, `POST /report` |
 | Bank account (NUBAN) reputation: "is it safe to pay this account?" | `GET /accounts/lookup`, `POST /accounts/report` |
 | Owner right of reply | `POST /disputes` |
@@ -26,7 +26,7 @@ Full interactive docs: `/docs` on the running server.
 
 ```
 api/            FastAPI app (routers, models, config, rate limiting)
-engine/         Detection engine (no DB or network), LLM helper, recovery content
+engine/         Detection engine (no DB or network) and recovery content
 analyst_console Streamlit SOC console
 tests/          Engine + API tests and the labelled Nigerian message set
 docs/           Deployment, WhatsApp setup, privacy policy draft

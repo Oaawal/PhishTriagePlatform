@@ -24,12 +24,6 @@ services:
         value: "true"
       - key: RETENTION_DAYS
         value: "180"
-      - key: LLM_API_KEY
-        sync: false
-      - key: LLM_BASE_URL
-        sync: false
-      - key: LLM_MODEL
-        sync: false
       - key: WHATSAPP_TOKEN
         sync: false
       - key: WHATSAPP_PHONE_NUMBER_ID

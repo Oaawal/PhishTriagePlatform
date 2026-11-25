@@ -10,7 +10,6 @@ from api import config
 from api.db import engine, init_db
 from api.routers import accounts, admin, analyze, numbers, recovery, whatsapp
 from engine import ENGINE_VERSION
-from engine.llm import llm_available
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("phishtriage")
@@ -59,6 +58,5 @@ def health():
     return {
         "status": "ok",
         "engine_version": ENGINE_VERSION,
-        "llm_enabled": llm_available(),
         "whatsapp_enabled": bool(config.WHATSAPP_TOKEN and config.WHATSAPP_PHONE_NUMBER_ID),
     }
