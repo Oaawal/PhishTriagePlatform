@@ -19,6 +19,9 @@ Scam detection and fraud intelligence for Nigeria. One backend serves:
 | Google Safe Browsing check of links in a message (optional key) | part of `POST /analyze` |
 | "Was this right?" feedback and opt-in message sharing for training | `POST /feedback` |
 | Training data review and export | `/admin/training/...` |
+| Official contacts directory ("is this really my bank?") | `GET /directory`, `GET /directory/check` |
+| Scam warnings feed and trending scam types | `GET /scam-alerts` |
+| Offline list of reported and official numbers (app call protection) | `GET /numbers/blocklist` |
 | Anonymous scam trend statistics | `GET /stats/public` |
 | WhatsApp bot webhook | `GET/POST /webhooks/whatsapp` |
 | Moderation, cases, partner feed (need `X-API-Key`) | `/admin/...`, `/cases`, `/reports` |

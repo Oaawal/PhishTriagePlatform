@@ -9,7 +9,7 @@ from sqlmodel import Session
 from api import config
 from api.db import engine, init_db
 from api import linkcheck
-from api.routers import accounts, admin, analyze, numbers, recovery, training, whatsapp
+from api.routers import accounts, admin, analyze, directory, numbers, recovery, scam_alerts, training, whatsapp
 from engine import ENGINE_VERSION
 
 logging.basicConfig(level=logging.INFO)
@@ -21,6 +21,9 @@ async def lifespan(app: FastAPI):
     init_db()
     try:
         with Session(engine) as session:
+            seeded = directory.seed_directory(session)
+            if seeded:
+                log.info("Seeded %s unverified official websites into the directory", seeded)
             purged = admin.purge_old_message_text(session)
             if purged:
                 log.info("Retention purge removed message text from %s reports", purged)
@@ -42,10 +45,14 @@ app.add_middleware(
 )
 
 app.include_router(analyze.router)
+app.include_router(scam_alerts.router)  # before numbers: /numbers/blocklist
 app.include_router(numbers.router)
 app.include_router(accounts.router)
 app.include_router(recovery.router)
 app.include_router(admin.router)
+app.include_router(directory.router)
+app.include_router(directory.admin_router)
+app.include_router(scam_alerts.admin_router)
 app.include_router(training.router)
 app.include_router(training.admin_router)
 app.include_router(whatsapp.router)

@@ -69,3 +69,38 @@ class FeedbackRequest(BaseModel):
                          description="correct = the result was right; scam/safe = what it really was")
     share_message: bool = False
     message: Optional[str] = Field(default=None, max_length=5000)
+
+
+class OfficialContactCreate(BaseModel):
+    org_name: str = Field(..., min_length=2, max_length=120)
+    org_type: str = Field(default="bank", pattern="^(bank|fintech|telco|government|other)$")
+    kind: str = Field(..., pattern="^(phone|sms_sender|website|email|whatsapp|ussd|app)$")
+    value: str = Field(..., min_length=2, max_length=200)
+    notes: Optional[str] = Field(default=None, max_length=500)
+    source_url: Optional[str] = Field(default=None, max_length=300)
+    verified: bool = False
+
+
+class OfficialContactUpdate(BaseModel):
+    org_name: Optional[str] = Field(default=None, max_length=120)
+    org_type: Optional[str] = Field(default=None, pattern="^(bank|fintech|telco|government|other)$")
+    value: Optional[str] = Field(default=None, max_length=200)
+    notes: Optional[str] = Field(default=None, max_length=500)
+    source_url: Optional[str] = Field(default=None, max_length=300)
+    verified: Optional[bool] = None
+    active: Optional[bool] = None
+
+
+class ScamAlertCreate(BaseModel):
+    title: str = Field(..., min_length=5, max_length=120)
+    body: str = Field(..., min_length=10, max_length=1500)
+    category: Optional[str] = Field(default=None, max_length=60)
+    severity: str = Field(default="warning", pattern="^(info|warning|danger)$")
+    expires_in_days: Optional[int] = Field(default=14, ge=1, le=365)
+
+
+class ScamAlertUpdate(BaseModel):
+    title: Optional[str] = Field(default=None, max_length=120)
+    body: Optional[str] = Field(default=None, max_length=1500)
+    severity: Optional[str] = Field(default=None, pattern="^(info|warning|danger)$")
+    active: Optional[bool] = None

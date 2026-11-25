@@ -99,7 +99,8 @@ if stats.get("by_category"):
 st.markdown("---")
 
 tabs = st.tabs(["📋 Number reports", "🏦 Account reports", "⚖️ Disputes", "🧠 Investigation",
-                "📁 Cases", "🔎 Lookup / Analyze", "📤 Partner feed", "🏷️ Training data"])
+                "📁 Cases", "🔎 Lookup / Analyze", "📤 Partner feed", "🏷️ Training data",
+                "📇 Official directory", "📣 Scam warnings"])
 
 
 def moderation_buttons(prefix: str, rid: str, path: str):
@@ -294,3 +295,67 @@ with tabs[7]:
             st.download_button("Download training CSV", exp.content, "phishtriage_training.csv", "text/csv")
     except requests.RequestException:
         st.warning("Could not prepare the export right now.")
+
+# ---------------- OFFICIAL DIRECTORY ----------------
+with tabs[8]:
+    st.subheader("Official contacts directory")
+    st.caption("Only VERIFIED entries are shown to the public and used to mark numbers, senders and websites as "
+               "official. Verify every entry on the organisation's own website and paste that page as the source.")
+    entries = fetch("/admin/directory", default=[])
+    if entries:
+        df = pd.DataFrame(entries)[["org_name", "org_type", "kind", "value", "verified", "active", "source_url", "id"]]
+        st.dataframe(df, use_container_width=True)
+        pending_entries = [e for e in entries if not e["verified"] and e["active"]]
+        if pending_entries:
+            st.markdown(f"**{len(pending_entries)} entries waiting for verification**")
+        for e in pending_entries[:20]:
+            with st.container(border=True):
+                st.write(f"**{e['org_name']}** · {e['kind']}: `{e['value']}`")
+                src = st.text_input("Source URL (official page where you confirmed it)", key=f"src_{e['id']}")
+                c1, c2 = st.columns(2)
+                if c1.button("Verify", key=f"ver_{e['id']}", disabled=not src):
+                    _call("PATCH", f"/admin/directory/{e['id']}", json={"verified": True, "source_url": src})
+                    st.rerun()
+                if c2.button("Deactivate", key=f"deact_{e['id']}"):
+                    _call("PATCH", f"/admin/directory/{e['id']}", json={"active": False})
+                    st.rerun()
+    st.markdown("#### Add an official contact")
+    with st.form("add_official"):
+        org = st.text_input("Organisation (e.g. GTBank)")
+        org_type = st.selectbox("Type", ["bank", "fintech", "telco", "government", "other"])
+        kind = st.selectbox("Contact kind", ["phone", "sms_sender", "website", "email", "whatsapp", "ussd", "app"])
+        value = st.text_input("Value (number, sender name, website...)")
+        source = st.text_input("Source URL where you confirmed it")
+        notes = st.text_input("Notes (optional)")
+        verified = st.checkbox("I confirmed this on the organisation's official website")
+        if st.form_submit_button("Add"):
+            res = post("/admin/directory", {"org_name": org, "org_type": org_type, "kind": kind, "value": value,
+                                            "source_url": source or None, "notes": notes or None,
+                                            "verified": verified})
+            if res:
+                st.success("Added")
+
+# ---------------- SCAM WARNINGS ----------------
+with tabs[9]:
+    st.subheader("Scam warnings shown in the app and WhatsApp bot")
+    feed = fetch("/scam-alerts", default={})
+    if feed.get("trending"):
+        st.markdown("**Trending in scans this week**")
+        st.dataframe(pd.DataFrame(feed["trending"]), use_container_width=True)
+    with st.form("new_alert"):
+        title = st.text_input("Title (e.g. Fake CBN grant SMS going round)")
+        body = st.text_area("What people should know and do")
+        category = st.text_input("Scam type (optional)")
+        severity = st.selectbox("Severity", ["warning", "danger", "info"])
+        days = st.number_input("Show for (days)", 1, 365, 14)
+        if st.form_submit_button("Publish warning"):
+            if post("/admin/scam-alerts", {"title": title, "body": body, "category": category or None,
+                                           "severity": severity, "expires_in_days": int(days)}):
+                st.success("Published")
+    for a in fetch("/admin/scam-alerts", default=[]):
+        with st.container(border=True):
+            st.write(f"**{a['title']}** ({a['severity']}) · {'active' if a['active'] else 'hidden'}")
+            st.write(a["body"])
+            if a["active"] and st.button("Hide", key=f"hide_{a['id']}"):
+                _call("PATCH", f"/admin/scam-alerts/{a['id']}", json={"active": False})
+                st.rerun()

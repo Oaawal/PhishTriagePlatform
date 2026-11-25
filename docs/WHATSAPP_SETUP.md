@@ -48,6 +48,10 @@ recipient first). Then forward a scam message. You should get a verdict.
 | any forwarded message | risk level, reasons, advice |
 | `check 0803 123 4567` | phone number reputation |
 | `account 0123456789 opay` | bank account reputation |
+| `official gtbank` | verified official numbers, SMS names and websites |
+| `official 0700...` or `official GTBank` | is this number / sender / website official? |
+| `alerts` | scam warnings going round now |
+| `SCAM` / `SAFE` (after a verdict) | shares that message anonymously for training |
 | `scammed` | recovery menu |
 | `recover transfer` / `otp` / `loan` / `invest` / `hacked` | step-by-step recovery plan |
 | `hi` / `help` | menu |

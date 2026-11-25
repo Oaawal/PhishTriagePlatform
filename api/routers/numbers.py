@@ -49,6 +49,10 @@ def normalize(number: str):
 @router.get("/lookup")
 def lookup(number: str, session: Session = Depends(get_session)):
     n = _normalize_or_400(number)
+    from api.routers.directory import SPOOF_NOTE, official_matches
+    official = [{"org_name": m.org_name, "kind": m.kind} for m in official_matches(session, n, "phone")]
+    official_info = {"official": official, "official_note": SPOOF_NOTE if official else None}
+
     record = session.get(Number, n)
     if not record:
         return {
@@ -57,6 +61,7 @@ def lookup(number: str, session: Session = Depends(get_session)):
             "number": n,
             "message": "No reports or profile found",
             "status_note": status_note(0),
+            **official_info,
         }
 
     recompute_number(session, record)
@@ -81,6 +86,7 @@ def lookup(number: str, session: Session = Depends(get_session)):
         "under_review": under_review,
         "cleared": cleared,
         "status_note": status_note(record.report_count_total, under_review, cleared),
+        **official_info,
     }
 
 

@@ -150,3 +150,38 @@ class TrainingSample(SQLModel, table=True):
     moderator_label: Optional[str] = None  # scam|safe (reviewed; used for training)
     scam_type: Optional[str] = None
     moderated_at: Optional[NaiveDatetime] = None
+
+
+class OfficialContact(SQLModel, table=True):
+    """
+    An official contact of a bank, fintech, telco or agency (phone number,
+    SMS sender name, website, email, WhatsApp, USSD code, app).
+
+    Only entries with verified=True are shown to the public or used to mark
+    something as official. Verify each entry against the organisation's own
+    website before ticking verified.
+    """
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    created_at: NaiveDatetime = Field(default_factory=utcnow)
+    org_name: str = Field(index=True)
+    org_type: str = "bank"            # bank|fintech|telco|government|other
+    kind: str                         # phone|sms_sender|website|email|whatsapp|ussd|app
+    value: str                        # as displayed
+    value_normalized: str = Field(index=True)
+    notes: Optional[str] = None
+    source_url: Optional[str] = None  # where it was verified
+    verified: bool = False
+    verified_at: Optional[NaiveDatetime] = None
+    active: bool = True
+
+
+class ScamAlert(SQLModel, table=True):
+    """A warning about a scam currently going round, written by a moderator."""
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    created_at: NaiveDatetime = Field(default_factory=utcnow, index=True)
+    title: str
+    body: str
+    category: Optional[str] = None
+    severity: str = "warning"         # info|warning|danger
+    active: bool = True
+    expires_at: Optional[NaiveDatetime] = None

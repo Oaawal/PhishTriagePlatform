@@ -50,7 +50,9 @@ MENU = (
     "• *Forward* any suspicious SMS/WhatsApp message here and I will check it.\n"
     "• *check 0803 123 4567* – has this number been reported?\n"
     "• *account 0123456789 opay* – has this bank account been reported?\n"
-    "• *scammed* – what to do if you have already been scammed.\n\n"
+    "• *scammed* – what to do if you have already been scammed.\n"
+    "• *official gtbank* – your bank's real website, numbers and SMS names.\n"
+    "• *alerts* – scams going round right now.\n\n"
     "I never ask for your OTP, PIN, BVN or password."
 )
 RECOVERY_KEYWORDS = {
@@ -109,12 +111,19 @@ def format_number(session: Session, raw: str) -> str:
     if not n:
         return "That does not look like a Nigerian phone number. Example: *check 0803 123 4567*"
     rec = session.get(Number, n)
+    from api.routers.directory import official_matches
+    official = official_matches(session, n, "phone")
+    if official:
+        orgs = ", ".join(sorted({o.org_name for o in official}))
+        prefix = f"✅ {n} is an official number of {orgs}. Callers can fake this number, so never share your OTP or PIN.\n\n"
+    else:
+        prefix = ""
     if not rec:
-        return f"🟢 {n}: no approved reports.\n{status_note(0)}"
+        return prefix + f"🟢 {n}: no approved reports.\n{status_note(0)}"
     recompute_number(session, rec)
     session.commit()
     emoji = RISK_EMOJI.get(rec.risk_level, "⚪")
-    return (f"{emoji} {n}: *{rec.risk_level}*\nLabel: {rec.current_label or 'Reported'}\n"
+    return prefix + (f"{emoji} {n}: *{rec.risk_level}*\nLabel: {rec.current_label or 'Reported'}\n"
             f"Confidence: {confidence_from_count(rec.report_count_total)}%\n"
             f"{status_note(rec.report_count_total, cleared=rec.source == 'cleared')}")
 
@@ -138,6 +147,31 @@ def format_account(session: Session, raw: str) -> str:
                    f"Name on reports: {r.account_name or 'not given'}\n"
                    f"{status_note(r.report_count_total, cleared=r.cleared)}")
     return "\n\n".join(out)
+
+
+def format_official(session: Session, query: str) -> str:
+    from api.routers.directory import SPOOF_NOTE, check_official, directory
+    q = query.strip()
+    res = check_official(q, session)
+    if res["official"] or any(ch.isdigit() for ch in q) or "." in q or "@" in q:
+        return ("✅ " if res["official"] else "❔ ") + res["verdict"] + "\n\n" + SPOOF_NOTE
+    res = directory(q=q, org_type=None, session=session)
+    if not res["organisations"]:
+        return f"No verified official contacts for '{q}' yet.\n\n{SPOOF_NOTE}"
+    lines = []
+    for org in res["organisations"][:3]:
+        lines.append(f"*{org['org_name']}*")
+        lines += [f"• {c['kind'].replace('_', ' ')}: {c['value']}" for c in org["contacts"][:8]]
+    return "\n".join(lines) + "\n\n" + SPOOF_NOTE
+
+
+def format_alerts(session: Session) -> str:
+    from api.routers.scam_alerts import active_alerts
+    alerts = active_alerts(session, limit=3)
+    if not alerts:
+        return "No special scam warnings right now. Stay careful, and forward anything suspicious here."
+    icon = {"danger": "🔴", "warning": "🟠", "info": "🔵"}
+    return "\n\n".join(f"{icon.get(a.severity, '🟠')} *{a.title}*\n{a.body}" for a in alerts)
 
 
 def format_recovery(keyword: str) -> str:
@@ -180,6 +214,10 @@ def build_reply(text: str, sender: str | None = None) -> str:
             return format_number(session, t.split(" ", 1)[1])
         if low.startswith(("account ", "acct ")):
             return format_account(session, t.split(" ", 1)[1])
+        if low.startswith("official "):
+            return format_official(session, t.split(" ", 1)[1])
+        if low in {"alerts", "alert", "warnings", "news"}:
+            return format_alerts(session)
         if low.startswith("recover"):
             return format_recovery(low)
         if low in {"scammed", "i've been scammed", "i have been scammed", "i was scammed", "fraud"}:
