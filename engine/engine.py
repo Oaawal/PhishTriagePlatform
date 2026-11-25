@@ -22,7 +22,7 @@ import unicodedata
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
-ENGINE_VERSION = "2.0.0"
+ENGINE_VERSION = "2.1.0"
 
 HIGH_THRESHOLD = 60
 MEDIUM_THRESHOLD = 30
@@ -508,8 +508,12 @@ def _domain_signals(ind: Indicators) -> list[Signal]:
     return sigs
 
 
-def analyze_text(text: str) -> dict:
-    """Analyse a message and return a JSON-serialisable verdict."""
+def analyze_text(text: str, extra_signals: list[Signal] | None = None) -> dict:
+    """Analyse a message and return a JSON-serialisable verdict.
+
+    `extra_signals` lets callers add evidence from outside the engine, such as
+    a link reputation service, so it is scored like any other signal.
+    """
     raw = (text or "")[:5000]
     t = normalize_text(raw)
     ind = extract_indicators(raw)
@@ -622,6 +626,8 @@ def analyze_text(text: str) -> dict:
         add("LEGIT_OTP_NOTICE", "Looks like a normal one-time code notification (no link, no request to share).",
             -30, "Likely safe")
 
+    sigs.extend(extra_signals or [])
+
     score = max(0, min(100, sum(s.weight for s in sigs)))
     risk = "High" if score >= HIGH_THRESHOLD else "Medium" if score >= MEDIUM_THRESHOLD else "Low"
 
@@ -665,3 +671,28 @@ def analyze_text(text: str) -> dict:
         "sensitive_requested": requested,
         "sanitized_message": sanitize_message(raw, ind.codes),
     }
+
+
+# ---------------------------------------------------------------------------
+# Redaction for training data
+# ---------------------------------------------------------------------------
+
+EMAIL_RE = re.compile(r"(?i)\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b")
+CARD_RE = re.compile(r"(?<!\d)(?:\d[ -]?){13,19}(?!\d)")
+LONG_ID_RE = re.compile(r"(?<!\d)\d{11}(?!\d)")  # BVN / NIN are 11 digits
+
+
+def redact_for_training(text: str) -> str:
+    """Remove personal identifiers but keep the scam's wording and link domains.
+
+    Phone numbers, account numbers, 11-digit BVN/NIN, card numbers, emails and
+    one-time codes are replaced with placeholders such as <PHONE>.
+    """
+    out = (text or "")[:5000]
+    out = EMAIL_RE.sub("<EMAIL>", out)
+    out = NG_PHONE_RE.sub("<PHONE>", out)
+    out = CARD_RE.sub(lambda m: "<CARD>" if len(re.sub(r"\D", "", m.group(0))) >= 13 else m.group(0), out)
+    out = LONG_ID_RE.sub("<ID>", out)
+    out = NUBAN_RE.sub("<ACCOUNT>", out)
+    out = CODE_RE.sub("<CODE>", out)
+    return re.sub(r"[ \t]+", " ", out).strip()

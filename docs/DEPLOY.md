@@ -18,6 +18,8 @@
 | `FINGERPRINT_SALT` | Long random string. Do not change it after launch (dedupe depends on it) |
 | `TRUST_PROXY` | `true` |
 | `WHATSAPP_*` | See WHATSAPP_SETUP.md |
+| `SAFE_BROWSING_API_KEY` | Optional. Google Safe Browsing link check, see SAFE_BROWSING_SETUP.md |
+| `TRAINING_COLLECTION` | `true` (default) to collect opt-in feedback and shared messages; `false` to switch off |
 
 Generate random values with:
 

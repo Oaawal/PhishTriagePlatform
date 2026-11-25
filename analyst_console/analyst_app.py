@@ -99,7 +99,7 @@ if stats.get("by_category"):
 st.markdown("---")
 
 tabs = st.tabs(["📋 Number reports", "🏦 Account reports", "⚖️ Disputes", "🧠 Investigation",
-                "📁 Cases", "🔎 Lookup / Analyze", "📤 Partner feed"])
+                "📁 Cases", "🔎 Lookup / Analyze", "📤 Partner feed", "🏷️ Training data"])
 
 
 def moderation_buttons(prefix: str, rid: str, path: str):
@@ -248,3 +248,49 @@ with tabs[6]:
                 st.dataframe(df, use_container_width=True)
                 st.download_button(f"Download {key}.csv", df.to_csv(index=False).encode(), f"phishtriage_{key}.csv",
                                    "text/csv", key=f"dl_{key}")
+
+# ---------------- TRAINING DATA ----------------
+with tabs[7]:
+    st.subheader("Training data for PhishTriage's own model")
+    st.caption("Messages users chose to share, with phone numbers, account numbers, codes and emails removed. "
+               "Label each one. Discard anything that still contains personal details or is not a real message.")
+    tstats = fetch("/admin/training/stats", default={})
+    if tstats:
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Shared messages", tstats["messages_shared"])
+        m2.metric("Reviewed", f"{tstats['messages_reviewed']} / {tstats['target_reviewed_samples']}")
+        m3.metric("Awaiting review", tstats["awaiting_review"])
+        rate = tstats["feedback"]["engine_agreement_rate"]
+        m4.metric("Engine agreement (user feedback)", f"{rate:.0%}" if rate is not None else "—")
+        st.caption(f"From feedback: {tstats['feedback']['missed_scams']} missed scams, "
+                   f"{tstats['feedback']['false_alarms']} false alarms out of {tstats['feedback']['count']} answers.")
+        st.progress(min(tstats["messages_reviewed"] / tstats["target_reviewed_samples"], 1.0))
+
+    queue = fetch("/admin/training/queue", {"limit": 25}, default=[])
+    if not queue:
+        st.info("Nothing waiting for review")
+    for s in queue:
+        with st.container(border=True):
+            st.code(s["text_redacted"])
+            st.caption(f"source: {s['source']} · engine: {s.get('engine_risk')} ({s.get('engine_category')}) · "
+                       f"user says: {s.get('user_label') or '—'}")
+            stype = st.text_input("Scam type (optional)", value=s.get("scam_type") or "", key=f"ts_{s['id']}")
+            c1, c2, c3 = st.columns(3)
+            if c1.button("Scam", key=f"tscam_{s['id']}"):
+                patch(f"/admin/training/{s['id']}", {"label": "scam", "scam_type": stype or None})
+                st.rerun()
+            if c2.button("Safe", key=f"tsafe_{s['id']}"):
+                patch(f"/admin/training/{s['id']}", {"label": "safe", "scam_type": stype or None})
+                st.rerun()
+            if c3.button("Discard", key=f"tdel_{s['id']}"):
+                patch(f"/admin/training/{s['id']}", {"label": "discard"})
+                st.rerun()
+
+    st.markdown("#### Export")
+    st.caption("Reviewed samples as CSV, for scripts/train_model.py.")
+    try:
+        exp = requests.get(f"{api_base}/admin/training/export", headers=HEADERS, timeout=60)
+        if exp.ok:
+            st.download_button("Download training CSV", exp.content, "phishtriage_training.csv", "text/csv")
+    except requests.RequestException:
+        st.warning("Could not prepare the export right now.")

@@ -35,3 +35,9 @@ WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
 WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
 WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "")
 WHATSAPP_GRAPH_VERSION = os.getenv("WHATSAPP_GRAPH_VERSION", "v23.0")
+
+# Google Safe Browsing link check (optional). Get a key: docs/SAFE_BROWSING_SETUP.md
+SAFE_BROWSING_API_KEY = os.getenv("SAFE_BROWSING_API_KEY", "")
+
+# Opt-in collection of anonymised, labelled messages for training our own model.
+TRAINING_COLLECTION = _bool("TRAINING_COLLECTION", True)

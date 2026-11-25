@@ -8,7 +8,8 @@ from sqlmodel import Session
 
 from api import config
 from api.db import engine, init_db
-from api.routers import accounts, admin, analyze, numbers, recovery, whatsapp
+from api import linkcheck
+from api.routers import accounts, admin, analyze, numbers, recovery, training, whatsapp
 from engine import ENGINE_VERSION
 
 logging.basicConfig(level=logging.INFO)
@@ -45,6 +46,8 @@ app.include_router(numbers.router)
 app.include_router(accounts.router)
 app.include_router(recovery.router)
 app.include_router(admin.router)
+app.include_router(training.router)
+app.include_router(training.admin_router)
 app.include_router(whatsapp.router)
 
 
@@ -59,4 +62,6 @@ def health():
         "status": "ok",
         "engine_version": ENGINE_VERSION,
         "whatsapp_enabled": bool(config.WHATSAPP_TOKEN and config.WHATSAPP_PHONE_NUMBER_ID),
+        "safe_browsing_enabled": linkcheck.enabled(),
+        "training_collection": config.TRAINING_COLLECTION,
     }

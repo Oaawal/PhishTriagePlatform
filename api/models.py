@@ -124,3 +124,29 @@ class ScanLog(SQLModel, table=True):
     domains: str = ""
     engine_version: str = ""
     used_llm: bool = False  # unused; kept so existing databases keep working
+
+
+class TrainingSample(SQLModel, table=True):
+    """
+    A labelled example for training PhishTriage's own model.
+
+    Message text is stored ONLY when the user explicitly agreed to share it,
+    and only after personal identifiers were removed (engine.redact_for_training).
+    Feedback without consent is kept as labels only (text is None), which still
+    tells us how accurate the engine is.
+    """
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    created_at: NaiveDatetime = Field(default_factory=utcnow, index=True)
+    source: str = "app"                    # app|whatsapp|report|account_report|console
+    consent: bool = False                  # user agreed to share the (redacted) text
+    text_redacted: Optional[str] = None
+    scan_id: Optional[str] = Field(default=None, index=True)
+    report_id: Optional[str] = Field(default=None, index=True)
+    engine_risk: Optional[str] = None
+    engine_score: Optional[int] = None
+    engine_category: Optional[str] = None
+    engine_version: Optional[str] = None
+    user_label: Optional[str] = None       # scam|safe (what the user says it really was)
+    moderator_label: Optional[str] = None  # scam|safe (reviewed; used for training)
+    scam_type: Optional[str] = None
+    moderated_at: Optional[NaiveDatetime] = None

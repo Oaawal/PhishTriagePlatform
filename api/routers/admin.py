@@ -10,6 +10,7 @@ from api.auth import verify_admin
 from api.db import get_session
 from api.models import utcnow, Account, AccountReport, Case, Dispute, Number, Report, ScanLog
 from api.reputation import recompute_account, recompute_number
+from api.routers.training import label_samples_for_report
 from api.schemas import CaseCreate
 
 router = APIRouter(tags=["admin"], dependencies=[Depends(verify_admin)])
@@ -43,6 +44,7 @@ def moderate_report(report_id: str, action: str, notes: str | None = None, sessi
     session.flush()
     number = session.get(Number, report.number_e164) or Number(number_e164=report.number_e164)
     recompute_number(session, number)
+    label_samples_for_report(session, report.id, approved=action == "approve")
     session.commit()
     return {"success": True, "message": "Report updated", "status": report.status, "report_id": report.id}
 
@@ -84,6 +86,7 @@ def moderate_account_report(report_id: str, action: str, notes: str | None = Non
     account = session.get(Account, report.account_id)
     if account:
         recompute_account(session, account)
+    label_samples_for_report(session, report.id, approved=action == "approve")
     session.commit()
     return {"success": True, "status": report.status, "report_id": report.id}
 

@@ -12,6 +12,9 @@ how the service actually runs before it is published._
 | Data | When | Purpose | Lawful basis | Kept for |
 |---|---|---|---|---|
 | Message text you scan | When you use "Scan message" or the WhatsApp bot | To check it for scam signs | Your consent / performing the service you asked for | **Not stored.** Only the risk result, scam type and link domains are kept for statistics |
+| Links in a message you scan | When you scan a message containing links | To check them against Google Safe Browsing's list of dangerous sites | Performing the service you asked for | Only the links (not the message) are sent to Google. Results cached for 30 minutes |
+| Your answer to "Was this right?" | Only if you answer | To measure and improve accuracy | Your consent | Kept with the scan result. No message text unless you also choose to share it |
+| A message you choose to share for training, with phone numbers, account numbers, ID numbers, card numbers, emails and codes removed | Only if you tick "Share this message anonymously", or reply SCAM/SAFE to the WhatsApp bot | To train and test PhishTriage's scam detection | Your consent | Until it is no longer needed for training. Reviewed by a moderator, who deletes anything still personal |
 | Phone or account number you report, reason, channel, optional message (one-time codes are masked) | When you submit a report | Warn other users; fraud prevention | Legitimate interest in preventing fraud | Report kept while the listing is active; message text deleted after 180 days |
 | A hashed identifier of your device or connection | When you report | Stop duplicate and abusive reports | Legitimate interest | 30 days for dedupe, then not used |
 | Your WhatsApp number | When you message the bot | To reply to you | Performing the service | Not stored by PhishTriage. Meta processes it under its own terms |

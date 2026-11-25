@@ -17,6 +17,7 @@ from api.reputation import (
     recompute_account, status_note,
 )
 from api.routers.numbers import clean_user_text
+from api.routers.training import add_shared_sample
 from api.schemas import AccountReportRequest, DisputeRequest
 
 router = APIRouter(tags=["accounts"])
@@ -111,6 +112,8 @@ def report_account(body: AccountReportRequest, request: Request, session: Sessio
     session.add(report)
     if not session.get(Account, aid):
         session.add(Account(id=aid, account_number=acct, bank=report.bank, account_name=report.account_name))
+    if body.share_for_training and body.message:
+        add_shared_sample(session, body.message, "account_report", user_label="scam", report_id=report.id, scam_type=reason)
     session.commit()
     session.refresh(report)
     return {

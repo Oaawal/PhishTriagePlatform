@@ -16,6 +16,7 @@ import hashlib
 import hmac
 import logging
 import re
+import time
 from collections import OrderedDict
 
 import httpx
@@ -27,13 +28,21 @@ from api.db import engine as db_engine
 from api.models import Account, Number
 from api.normalize import normalize_ng_number
 from api.reputation import confidence_from_count, normalize_account_number, recompute_account, recompute_number, status_note
+from api import config as app_config
 from api.routers.analyze import log_scan, run_analysis
+from api.routers.training import add_shared_sample
 from engine.recovery import get_plan
 
 log = logging.getLogger("phishtriage.whatsapp")
 router = APIRouter(tags=["whatsapp"])
 
 _seen: "OrderedDict[str, None]" = OrderedDict()
+# Last scanned message per sender, kept in memory for 30 minutes only, so a
+# "SCAM"/"SAFE" reply can label it. The sender's number is never stored with it.
+_last_scan: "OrderedDict[str, tuple[float, str]]" = OrderedDict()
+LAST_SCAN_SECONDS = 30 * 60
+FEEDBACK_PROMPT = ("\n\n💬 Help improve PhishTriage: reply *SCAM* or *SAFE* to tell us what this message really was. "
+                   "Replying shares this message anonymously (numbers and codes removed) to train our scam detector.")
 RISK_EMOJI = {"High": "🔴", "Medium": "🟠", "Low": "🟢"}
 
 MENU = (
@@ -85,6 +94,8 @@ def format_verdict(result: dict) -> str:
         lines += [f"• {r}" for r in result["reasons"][:4]]
         lines += ["", "*What to do:*"]
         lines += [f"• {a}" for a in result["advice"][:3]]
+    if result.get("link_check", {}).get("dangerous_links"):
+        lines.insert(1, "⛔ Google Safe Browsing lists a link in this message as dangerous.")
     accts, phones = result["indicators"]["accounts"], result["indicators"]["phones"]
     if accts or phones:
         lines += ["", "Check them here:"]
@@ -138,10 +149,31 @@ def format_recovery(keyword: str) -> str:
     return f"*{plan['title']}*\n\n{steps}\n\n_{plan['disclaimer']}_"
 
 
-def build_reply(text: str) -> str:
+def _remember(sender: str, text: str) -> None:
+    _last_scan[sender] = (time.monotonic() + LAST_SCAN_SECONDS, text)
+    _last_scan.move_to_end(sender)
+    while len(_last_scan) > 5000:
+        _last_scan.popitem(last=False)
+
+
+def _pop_last(sender: str) -> str | None:
+    hit = _last_scan.pop(sender, None)
+    if hit and hit[0] > time.monotonic():
+        return hit[1]
+    return None
+
+
+def build_reply(text: str, sender: str | None = None) -> str:
     t = text.strip()
     low = t.lower()
     with Session(db_engine) as session:
+        if low in {"scam", "safe"} and sender:
+            last = _pop_last(sender)
+            if not last:
+                return "Thanks! Please forward the message first, then reply *SCAM* or *SAFE*."
+            add_shared_sample(session, last, "whatsapp", user_label=low)
+            session.commit()
+            return "🙏 Thank you. Your answer was saved anonymously and will help protect others."
         if low in {"hi", "hello", "help", "menu", "start", "hey"}:
             return MENU
         if low.startswith(("check ", "number ")):
@@ -156,7 +188,11 @@ def build_reply(text: str) -> str:
             return MENU
         result = run_analysis(t)
         log_scan(session, result, "whatsapp")
-        return format_verdict(result)
+        reply = format_verdict(result)
+        if sender and app_config.TRAINING_COLLECTION:
+            _remember(sender, t)
+            reply += FEEDBACK_PROMPT
+        return reply
 
 
 def send_whatsapp_text(to: str, body: str) -> None:
@@ -180,7 +216,7 @@ def send_whatsapp_text(to: str, body: str) -> None:
 
 def handle_message(sender: str, text: str) -> None:
     try:
-        reply = build_reply(text)
+        reply = build_reply(text, sender)
     except Exception:
         log.exception("Failed to build WhatsApp reply")
         reply = "Sorry, something went wrong. Please try again in a minute."

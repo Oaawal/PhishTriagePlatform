@@ -21,6 +21,7 @@ class AccountReportRequest(BaseModel):
     channel: str = Field(..., max_length=20)
     amount_lost: Optional[float] = Field(default=None, ge=0)
     message: Optional[str] = Field(default=None, max_length=2000)
+    share_for_training: bool = False  # reporter agreed to anonymised use for training
 
 
 class DisputeRequest(BaseModel):
@@ -60,3 +61,11 @@ class IncidentRequest(BaseModel):
     transaction_ref: Optional[str] = None
     police_station: Optional[str] = None
     description: Optional[str] = Field(default=None, max_length=3000)
+
+
+class FeedbackRequest(BaseModel):
+    scan_id: str = Field(..., max_length=64)
+    verdict: str = Field(..., pattern="^(correct|scam|safe)$",
+                         description="correct = the result was right; scam/safe = what it really was")
+    share_message: bool = False
+    message: Optional[str] = Field(default=None, max_length=5000)

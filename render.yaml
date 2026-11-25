@@ -24,6 +24,8 @@ services:
         value: "true"
       - key: RETENTION_DAYS
         value: "180"
+      - key: SAFE_BROWSING_API_KEY
+        sync: false
       - key: WHATSAPP_TOKEN
         sync: false
       - key: WHATSAPP_PHONE_NUMBER_ID

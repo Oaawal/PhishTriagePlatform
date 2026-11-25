@@ -13,6 +13,7 @@ from api.normalize import normalize_ng_number
 from api.reputation import (
     VALID_CHANNELS, VALID_REASONS, confidence_from_count, recompute_number, status_note,
 )
+from api.routers.training import add_shared_sample
 from engine.engine import extract_indicators, sanitize_message as mask_codes
 
 router = APIRouter(tags=["numbers"])
@@ -90,9 +91,14 @@ def report_number(
     reason: str,
     channel: str,
     message: str | None = None,
+    share_for_training: bool = False,
     session: Session = Depends(get_session),
 ):
-    """Report a phone number (query parameters kept for app compatibility)."""
+    """Report a phone number (query parameters kept for app compatibility).
+
+    `share_for_training=true` means the reporter agreed that the message may be
+    used, with personal details removed, to train PhishTriage's own model.
+    """
     check_rate_limit(request, "report")
     reason_n, channel_n = reason.lower().strip(), channel.lower().strip()
     if reason_n not in VALID_REASONS:
@@ -123,6 +129,8 @@ def report_number(
     session.add(report)
     if not session.get(Number, n):
         session.add(Number(number_e164=n, source="community"))
+    if share_for_training and message:
+        add_shared_sample(session, message, "report", user_label="scam", report_id=report.id, scam_type=reason_n)
     session.commit()
     session.refresh(report)
     return {

@@ -16,6 +16,9 @@ Scam detection and fraud intelligence for Nigeria. One backend serves:
 | Bank account (NUBAN) reputation: "is it safe to pay this account?" | `GET /accounts/lookup`, `POST /accounts/report` |
 | Owner right of reply | `POST /disputes` |
 | "I've been scammed" recovery steps and complaint letter | `GET /recovery`, `GET /recovery/{situation}`, `POST /recovery/letter` |
+| Google Safe Browsing check of links in a message (optional key) | part of `POST /analyze` |
+| "Was this right?" feedback and opt-in message sharing for training | `POST /feedback` |
+| Training data review and export | `/admin/training/...` |
 | Anonymous scam trend statistics | `GET /stats/public` |
 | WhatsApp bot webhook | `GET/POST /webhooks/whatsapp` |
 | Moderation, cases, partner feed (need `X-API-Key`) | `/admin/...`, `/cases`, `/reports` |
@@ -66,4 +69,5 @@ figure**. Grow it with real (anonymised) messages from reports and the bot.
 
 ## Deploy
 
-See [docs/DEPLOY.md](docs/DEPLOY.md) and [docs/WHATSAPP_SETUP.md](docs/WHATSAPP_SETUP.md).
+See [docs/DEPLOY.md](docs/DEPLOY.md), [docs/WHATSAPP_SETUP.md](docs/WHATSAPP_SETUP.md),
+[docs/SAFE_BROWSING_SETUP.md](docs/SAFE_BROWSING_SETUP.md) and [docs/TRAINING_DATA.md](docs/TRAINING_DATA.md).
