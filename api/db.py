@@ -1,30 +1,25 @@
 import os
-from sqlmodel import SQLModel, create_engine, Session
 
-# Use DATABASE_URL from environment (Render, Supabase, Neon, etc.)
-# Fallback to SQLite for local development
+from sqlmodel import Session, SQLModel, create_engine
+
+# Use DATABASE_URL from the environment (Render, Railway, Supabase, Neon...).
+# Falls back to SQLite for local development.
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dev.db")
 
-# SQLite requires special connection args
-connect_args = {}
-if DATABASE_URL.startswith("sqlite"):
-    connect_args = {"check_same_thread": False}
+# Some providers still hand out postgres:// URLs, which SQLAlchemy rejects.
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# Create engine
-engine = create_engine(
-    DATABASE_URL,
-    echo=False,
-    connect_args=connect_args
-)
+connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+
+engine = create_engine(DATABASE_URL, echo=False, connect_args=connect_args, pool_pre_ping=True)
 
 
-# Initialize database and create tables
 def init_db():
-    from api.models import Case, Number, Report
+    from api import models  # noqa: F401  (registers tables)
     SQLModel.metadata.create_all(engine)
 
 
-# Dependency for FastAPI routes
 def get_session():
     with Session(engine) as session:
         yield session

@@ -1,33 +1,66 @@
-from collections import defaultdict
-from datetime import datetime, timedelta
-from fastapi import Request, HTTPException
+"""
+Simple in-memory rate limiting and reporter fingerprinting.
+
+Works for a single server instance. If you run several instances, move
+the counters to Redis.
+"""
 import hashlib
+import re
+import threading
+import time
+from collections import defaultdict, deque
 
-# store: ip -> list of request timestamps
-_request_log: dict = defaultdict(list)
+from fastapi import HTTPException, Request
 
-RATE_LIMIT = 10
-WINDOW_SECONDS = 60
+from api import config
+
+_lock = threading.Lock()
+_hits: dict[str, deque] = defaultdict(deque)
+_DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 
 
-def check_rate_limit(request: Request):
-    ip = request.client.host
-    now = datetime.utcnow()
-    window_start = now - timedelta(seconds=WINDOW_SECONDS)
+def client_ip(request: Request) -> str:
+    if config.TRUST_PROXY:
+        fwd = request.headers.get("x-forwarded-for")
+        if fwd:
+            return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
-    _request_log[ip] = [t for t in _request_log[ip] if t >= window_start]
 
-    if len(_request_log[ip]) >= RATE_LIMIT:
-        raise HTTPException(
-            status_code=429,
-            detail="Too many requests. Please wait before submitting again."
-        )
+def device_id(request: Request) -> str | None:
+    d = request.headers.get("x-device-id", "").strip()
+    return d if _DEVICE_ID_RE.match(d) else None
 
-    _request_log[ip].append(now)
+
+def client_key(request: Request) -> str:
+    """Identity used for rate limiting: app install ID if present, else IP."""
+    d = device_id(request)
+    return f"dev:{d}" if d else f"ip:{client_ip(request)}"
+
+
+def check_rate_limit(request: Request, bucket: str = "default", limit: int | None = None, window: int = 60):
+    limit = limit or config.RATE_LIMIT_REPORTS
+    key = f"{bucket}:{client_key(request)}"
+    now = time.monotonic()
+    with _lock:
+        q = _hits[key]
+        while q and q[0] <= now - window:
+            q.popleft()
+        if len(q) >= limit:
+            raise HTTPException(status_code=429, detail="Too many requests. Please wait a minute and try again.")
+        q.append(now)
+
+
+def reset_rate_limits():
+    with _lock:
+        _hits.clear()
 
 
 def generate_fingerprint(request: Request) -> str:
-    ip = request.client.host or "unknown"
-    user_agent = request.headers.get("user-agent", "unknown")
-    raw = f"{ip}:{user_agent}"
-    return hashlib.sha256(raw.encode()).hexdigest()
+    """Salted hash identifying a reporter without storing their IP or device ID."""
+    d = device_id(request)
+    if d:
+        raw = f"dev:{d}"
+    else:
+        raw = f"ip:{client_ip(request)}:{request.headers.get('user-agent', 'unknown')}"
+    return hashlib.sha256(f"{config.FINGERPRINT_SALT}:{raw}".encode()).hexdigest()

@@ -1,3 +1,9 @@
-streamlit
-pandas
-requests
+# API server (pinned versions; tested together)
+fastapi==0.165.0
+starlette==1.7.0
+uvicorn[standard]==0.54.0
+pydantic==2.13.5
+sqlmodel==0.0.50
+SQLAlchemy==2.1.9
+psycopg2-binary==2.9.13
+httpx==0.28.1

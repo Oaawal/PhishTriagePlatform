@@ -1,254 +1,251 @@
-import streamlit as st
-import requests
+"""
+PhishTriage SOC Analyst Console (Streamlit).
+
+Run:  streamlit run analyst_console/analyst_app.py
+
+The admin key is read from (in order): Streamlit secrets `ADMIN_API_KEY`,
+the ADMIN_API_KEY environment variable, or the password box in the sidebar.
+"""
+import os
+
 import pandas as pd
+import requests
+import streamlit as st
 
 st.set_page_config(page_title="PhishTriage SOC Console", layout="wide")
-
 st.title("🛡️ PhishTriage SOC Analyst Console")
 
+
+def _secret(name: str, default: str = "") -> str:
+    try:
+        return st.secrets.get(name, os.getenv(name, default))
+    except Exception:
+        return os.getenv(name, default)
+
+
 # ---------------- CONFIG ----------------
-
 st.sidebar.header("Configuration")
-
 api_base = st.sidebar.text_input(
-    "API Base URL",
-    value="https://phishtriageplatform.onrender.com"
+    "API Base URL", value=_secret("API_BASE_URL", "https://phishtriageplatform.onrender.com")
 ).rstrip("/")
+api_key = _secret("ADMIN_API_KEY") or st.sidebar.text_input("Admin API key", type="password")
+HEADERS = {"X-API-Key": api_key} if api_key else {}
 
 
 # ---------------- HELPERS ----------------
-
-def fetch(path, params=None):
+def _call(method: str, path: str, **kw):
     try:
-        res = requests.get(f"{api_base}{path}", params=params, timeout=30)
-        if not res.ok:
-            return []
-        return res.json()
-    except:
-        return []
+        res = requests.request(method, f"{api_base}{path}", headers=HEADERS, timeout=60, **kw)
+    except requests.RequestException as exc:
+        st.error(f"Cannot reach API ({type(exc).__name__}). The server may be waking up; try again.")
+        return None
+    if res.status_code == 403:
+        st.error("Admin key rejected. Check ADMIN_API_KEY.")
+        return None
+    if res.status_code == 503:
+        st.error("Admin API is disabled on the server: set ADMIN_API_KEY there.")
+        return None
+    if not res.ok:
+        st.warning(f"{method} {path} failed: HTTP {res.status_code} {res.text[:200]}")
+        return None
+    return res.json()
+
+
+def fetch(path, params=None, default=None):
+    out = _call("GET", path, params=params)
+    return default if out is None else out
 
 
 def patch(path, params=None):
-    try:
-        requests.patch(f"{api_base}{path}", params=params, timeout=30)
-    except:
-        pass
+    return _call("PATCH", path, params=params)
 
 
 def post(path, payload):
-    try:
-        requests.post(f"{api_base}{path}", json=payload, timeout=30)
-    except:
-        pass
+    return _call("POST", path, json=payload)
 
+
+if not api_key:
+    st.info("Enter the admin API key in the sidebar to load moderation data.")
+    st.stop()
 
 # ---------------- FETCH DATA ----------------
-
-reports = fetch("/reports")
-pending = fetch("/admin/reports", {"status": "Pending"})
-approved = fetch("/admin/reports", {"status": "Approved"})
-rejected = fetch("/admin/reports", {"status": "Rejected"})
-cases = fetch("/cases")
-alerts = fetch("/alerts")
-
+reports = fetch("/reports", default=[])
+pending = [r for r in reports if r.get("status") == "Pending"]
+approved = [r for r in reports if r.get("status") == "Approved"]
+rejected = [r for r in reports if r.get("status") == "Rejected"]
+acct_pending = fetch("/admin/account-reports", {"status": "Pending"}, default=[])
+disputes = fetch("/admin/disputes", {"status": "Pending"}, default=[])
+cases = fetch("/cases", {"status": "Open"}, default=[])
+alerts = fetch("/alerts", default={}).get("alerts", [])
+stats = fetch("/stats/public", {"days": 30}, default={})
 
 # ---------------- METRICS ----------------
-
 st.subheader("📊 SOC Overview")
-
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Total Reports", len(reports))
-c2.metric("Pending Reports", len(pending))
-c3.metric("Approved Reports", len(approved))
-c4.metric("Rejected Reports", len(rejected))
+c1.metric("Number reports", len(reports))
+c2.metric("Pending (numbers)", len(pending))
+c3.metric("Pending (accounts)", len(acct_pending))
+c4.metric("Pending disputes", len(disputes))
+c5, c6, c7, c8 = st.columns(4)
+c5.metric("Open cases", len(cases))
+c6.metric("High-risk alerts", len(alerts))
+c7.metric("Scans (30d)", stats.get("scans", 0))
+c8.metric("Flagged scans (30d)", stats.get("flagged", 0))
 
-c5, c6 = st.columns(2)
-c5.metric("Open Cases", len(cases))
-c6.metric("High Risk Alerts", len(alerts))
-
-st.markdown("---")
-
-
-# ---------------- TOP RISK NUMBERS ----------------
-
-st.markdown("## ⚠️ Top Risk Numbers")
-
-if alerts:
-    df_alerts = pd.DataFrame(alerts)
-    st.dataframe(df_alerts, use_container_width=True)
-else:
-    st.info("No high-risk numbers yet")
-
-
-# ---------------- CHARTS ----------------
-
-st.markdown("## 📊 Report Distribution by Reason")
-
-if reports:
-    df_reports = pd.DataFrame(reports)
-    if "reason" in df_reports.columns:
-        st.bar_chart(df_reports["reason"].value_counts())
-else:
-    st.info("No report data available")
-
-
-st.markdown("## 📡 Report Distribution by Channel")
-
-if reports:
-    df_reports = pd.DataFrame(reports)
-    if "channel" in df_reports.columns:
-        st.bar_chart(df_reports["channel"].value_counts())
-
+if stats.get("by_category"):
+    st.markdown("#### Flagged scans by scam type (30 days)")
+    st.bar_chart(pd.Series(stats["by_category"]))
 
 st.markdown("---")
 
-
-# ---------------- TABS ----------------
-
-tab1, tab2, tab3, tab4 = st.tabs([
-    "📋 Moderation",
-    "🧠 Investigation",
-    "📁 Cases",
-    "🔎 Lookup"
-])
+tabs = st.tabs(["📋 Number reports", "🏦 Account reports", "⚖️ Disputes", "🧠 Investigation",
+                "📁 Cases", "🔎 Lookup / Analyze", "📤 Partner feed"])
 
 
-# ===============================
-# 📋 MODERATION TAB
-# ===============================
+def moderation_buttons(prefix: str, rid: str, path: str):
+    notes = st.text_input("Moderator notes", key=f"{prefix}_n_{rid}")
+    col1, col2 = st.columns(2)
+    if col1.button("Approve", key=f"{prefix}_a_{rid}"):
+        patch(path, {"action": "approve", "notes": notes or None})
+        st.rerun()
+    if col2.button("Reject", key=f"{prefix}_r_{rid}"):
+        patch(path, {"action": "reject", "notes": notes or None})
+        st.rerun()
 
-with tab1:
-    st.subheader("Pending Reports")
 
+# ---------------- NUMBER REPORTS ----------------
+with tabs[0]:
+    st.subheader("Pending number reports")
+    st.caption(f"Approved: {len(approved)} · Rejected: {len(rejected)}")
     if not pending:
         st.info("No pending reports")
-    else:
-        for r in pending:
-            st.markdown("---")
-            st.write(f"📞 {r.get('number_e164')}")
-            st.write(f"Reason: {r.get('reason')}")
-            st.write(f"Channel: {r.get('channel')}")
+    for r in pending:
+        with st.container(border=True):
+            st.write(f"📞 **{r.get('number_e164')}** · {r.get('reason')} · via {r.get('channel')} · {r.get('created_at', '')[:16]}")
+            if r.get("message_sanitized"):
+                st.code(r["message_sanitized"])
+            moderation_buttons("num", r["id"], f"/admin/reports/{r['id']}")
 
+# ---------------- ACCOUNT REPORTS ----------------
+with tabs[1]:
+    st.subheader("Pending bank account reports")
+    if not acct_pending:
+        st.info("No pending account reports")
+    for r in acct_pending:
+        with st.container(border=True):
+            st.write(f"🏦 **{r.get('account_number')}** ({r.get('bank')}) · name: {r.get('account_name') or '—'}")
+            st.write(f"{r.get('reason')} · via {r.get('channel')} · lost: {r.get('amount_lost') or '—'}")
+            if r.get("message_sanitized"):
+                st.code(r["message_sanitized"])
+            moderation_buttons("acc", r["id"], f"/admin/account-reports/{r['id']}")
+
+# ---------------- DISPUTES ----------------
+with tabs[2]:
+    st.subheader("Owner disputes (right of reply)")
+    st.caption("Uphold clears the listing. Respond to the contact given within a reasonable time.")
+    if not disputes:
+        st.info("No pending disputes")
+    for d in disputes:
+        with st.container(border=True):
+            st.write(f"**{d['target_type']}** `{d['target_id']}` · contact: {d['contact']}")
+            st.write(d["explanation"])
+            notes = st.text_input("Decision notes", key=f"d_n_{d['id']}")
             col1, col2 = st.columns(2)
+            if col1.button("Uphold (clear listing)", key=f"d_u_{d['id']}"):
+                patch(f"/admin/disputes/{d['id']}", {"action": "uphold", "notes": notes or None})
+                st.rerun()
+            if col2.button("Reject dispute", key=f"d_r_{d['id']}"):
+                patch(f"/admin/disputes/{d['id']}", {"action": "reject", "notes": notes or None})
+                st.rerun()
 
-            with col1:
-                if st.button("Approve", key=f"a_{r['id']}"):
-                    patch(f"/admin/reports/{r['id']}", {"action": "approve"})
-                    st.rerun()
-
-            with col2:
-                if st.button("Reject", key=f"r_{r['id']}"):
-                    patch(f"/admin/reports/{r['id']}", {"action": "reject"})
-                    st.rerun()
-
-
-# ===============================
-# 🧠 INVESTIGATION TAB
-# ===============================
-
-with tab2:
+# ---------------- INVESTIGATION ----------------
+with tabs[3]:
     st.subheader("Investigation")
-
-    if reports:
-        selected = st.selectbox(
-            "Select Report",
-            reports,
-            format_func=lambda x: f"{x.get('number_e164')} | {x.get('reason')}"
-        )
-
-        st.markdown("### Report Details")
-        st.json(selected)
-
-        # Lookup intelligence
-        lookup = fetch("/lookup", {"number": selected.get("number_e164")})
-
-        if lookup and lookup.get("found"):
-            st.markdown("### Intelligence")
-
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Risk", lookup.get("risk_level"))
-            c2.metric("Reports", lookup.get("report_count_total"))
-            c3.metric("Confidence", f"{lookup.get('confidence')}%")
-
-            st.write(f"Trend: {lookup.get('trend')}")
-
-            if lookup.get("trend") == "rising":
-                st.error("⚠️ Rising activity detected")
-            else:
-                st.success("Stable activity")
-
-        st.markdown("### Quick Investigation Summary")
-        st.write(f"Number: {selected.get('number_e164')}")
-        st.write(f"Reason: {selected.get('reason')}")
-        st.write(f"Channel: {selected.get('channel')}")
-
-        st.markdown("### Create Case")
-
-        if st.button("Create Case"):
-            payload = {
-                "title": f"Investigation {selected.get('number_e164')}",
-                "description": f"Investigation for {selected.get('number_e164')}",
-                "status": "Open",
-                "analyst_notes": f"Linked Report ID: {selected.get('id')}"
-            }
-            post("/cases", payload)
-            st.success("Case created")
-    else:
+    if not reports:
         st.info("No reports available")
-
-
-# ===============================
-# 📁 CASES TAB
-# ===============================
-
-with tab3:
-    st.subheader("Cases")
-
-    if not cases:
-        st.info("No cases found")
     else:
-        for c in cases:
-            st.markdown("---")
-            st.write(f"📁 {c.get('title')}")
-            st.write(f"Status: {c.get('status')}")
+        selected = st.selectbox(
+            "Select report", reports,
+            format_func=lambda x: f"{x.get('number_e164')} | {x.get('reason')} | {x.get('status')}",
+        )
+        st.json(selected)
+        lookup = fetch("/lookup", {"number": selected.get("number_e164")}, default={})
+        if lookup.get("found"):
+            k1, k2, k3 = st.columns(3)
+            k1.metric("Risk", lookup.get("risk_level"))
+            k2.metric("Approved reports", lookup.get("report_count_total"))
+            k3.metric("Confidence", f"{lookup.get('confidence')}%")
+            (st.error if lookup.get("trend") == "rising" else st.success)(f"Trend: {lookup.get('trend')}")
+        if st.button("Create case from this report"):
+            case = post("/cases", {
+                "source": "report",
+                "risk": lookup.get("risk_level", "Medium"),
+                "category": selected.get("reason", "Reported"),
+                "sanitized_message": selected.get("message_sanitized") or "",
+                "phones": selected.get("number_e164", ""),
+                "analyst_notes": f"Linked report ID: {selected.get('id')}",
+            })
+            if case:
+                patch(f"/reports/{selected['id']}/link-case", {"case_id": case["id"]})
+                st.success(f"Case {case['id'][:8]} created and linked")
 
-            if st.button("Close Case", key=f"close_{c['id']}"):
+# ---------------- CASES ----------------
+with tabs[4]:
+    st.subheader("Open cases")
+    if not cases:
+        st.info("No open cases")
+    for c in cases:
+        with st.container(border=True):
+            st.write(f"📁 **{c.get('category')}** · risk {c.get('risk')} · {c.get('phones') or c.get('accounts') or ''}")
+            st.caption(f"{c['id']} · created {c.get('created_at', '')[:16]} · assignee: {c.get('assignee') or '—'}")
+            notes = st.text_area("Analyst notes", value=c.get("analyst_notes") or "", key=f"cn_{c['id']}")
+            col1, col2, col3 = st.columns(3)
+            if col1.button("Save notes", key=f"cs_{c['id']}"):
+                patch(f"/cases/{c['id']}", {"analyst_notes": notes})
+                st.rerun()
+            if col2.button("Mark in review", key=f"ci_{c['id']}"):
+                patch(f"/cases/{c['id']}", {"status": "InReview"})
+                st.rerun()
+            if col3.button("Close case", key=f"cc_{c['id']}"):
                 patch(f"/cases/{c['id']}", {"status": "Closed"})
                 st.rerun()
 
+# ---------------- LOOKUP / ANALYZE ----------------
+with tabs[5]:
+    left, right = st.columns(2)
+    with left:
+        st.subheader("Number / account lookup")
+        q = st.text_input("Phone number or 10-digit account number")
+        if st.button("Lookup") and q:
+            digits = "".join(ch for ch in q if ch.isdigit())
+            if len(digits) == 10 and not digits.startswith(("70", "80", "81", "90", "91")):
+                st.json(fetch("/accounts/lookup", {"account_number": digits}, default={}))
+            else:
+                st.json(fetch("/lookup", {"number": q}, default={}))
+    with right:
+        st.subheader("Analyze a message")
+        msg = st.text_area("Message text", height=150)
+        deep = st.checkbox("Ask LLM for a second opinion (if configured)")
+        if st.button("Analyze") and msg.strip():
+            res = post("/analyze", {"message": msg, "channel": "console", "deep": deep})
+            if res:
+                st.metric("Risk", f"{res['risk']} ({res['score']}/100)")
+                st.write(f"**Category:** {res['category']}")
+                st.dataframe(pd.DataFrame(res["signals"]), use_container_width=True)
+                st.json(res["indicators"])
 
-# ===============================
-# 🔎 LOOKUP TAB
-# ===============================
-
-with tab4:
-    st.subheader("Number Lookup")
-
-    number = st.text_input("Enter phone number")
-
-    if st.button("Lookup"):
-        data = fetch("/lookup", {"number": number})
-
-        if data and data.get("found"):
-            st.success("Number found")
-
-            st.write(f"Number: {data.get('number')}")
-            st.write(f"Risk: {data.get('risk_level')}")
-            st.write(f"Confidence: {data.get('confidence')}%")
-            st.write(f"Reports: {data.get('report_count_total')}")
-
-            if data.get("trend") == "rising":
-                st.error("⚠️ Rising activity detected")
-
-            st.markdown("### Quick Actions")
-
-            if st.button("Create Case from Lookup"):
-                payload = {
-                    "title": f"Lookup Investigation {data.get('number')}",
-                    "description": "Case created from lookup",
-                    "status": "Open"
-                }
-                post("/cases", payload)
-                st.success("Case created")
-        else:
-            st.warning("No data found")
+# ---------------- PARTNER FEED ----------------
+with tabs[6]:
+    st.subheader("Moderated intelligence feed")
+    st.caption("Shareable with partner fraud teams under a data-sharing agreement. Contains no reporter data or message text.")
+    days = st.slider("Window (days)", 7, 180, 30)
+    feed = fetch("/admin/feed", {"days": days}, default={})
+    if feed:
+        st.write(f"Numbers: {len(feed['numbers'])} · Accounts: {len(feed['accounts'])} · Domains: {len(feed['domains'])}")
+        for key in ("numbers", "accounts", "domains"):
+            if feed[key]:
+                df = pd.DataFrame(feed[key])
+                st.markdown(f"**{key.title()}**")
+                st.dataframe(df, use_container_width=True)
+                st.download_button(f"Download {key}.csv", df.to_csv(index=False).encode(), f"phishtriage_{key}.csv",
+                                   "text/csv", key=f"dl_{key}")
