@@ -31,7 +31,18 @@ python -c "import secrets; print(secrets.token_urlsafe(40))"
    before giving the app or bot to real users. Free Render Postgres databases
    also expire; use a paid plan or Neon/Supabase.
 
-## Option B: any Docker host (Railway, Fly.io, a VPS)
+## Option B: Railway (recommended: always on, ~US$5/month Hobby plan)
+
+`railway.json` tells Railway to build the `Dockerfile` and health-check `/health`.
+
+1. In Railway: **New Project > Deploy from GitHub repo > Oaawal/PhishTriagePlatform** (branch `main`).
+2. In the same project: **New > Database > PostgreSQL**.
+3. On the API service, **Variables**: add `DATABASE_URL=${{Postgres.DATABASE_URL}}`,
+   `ADMIN_API_KEY`, `FINGERPRINT_SALT`, `TRUST_PROXY=true`, and the optional `LLM_*` / `WHATSAPP_*` values.
+4. **Settings > Networking > Generate Domain**, then open `https://<domain>/health`.
+5. Keep **Serverless** (app sleeping) **off**, so the first request is fast.
+
+## Option C: any other Docker host (Fly.io, a VPS)
 
 ```bash
 docker build -t phishtriage-api .
