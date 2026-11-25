@@ -5,5 +5,5 @@ uvicorn[standard]==0.54.0
 pydantic==2.13.5
 sqlmodel==0.0.50
 SQLAlchemy==2.1.9
-psycopg2-binary==2.9.13
+psycopg[binary]==3.3.9
 httpx==0.28.1

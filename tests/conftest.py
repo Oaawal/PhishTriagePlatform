@@ -5,7 +5,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-os.environ["DATABASE_URL"] = "sqlite:///./test.db"
+# Set TEST_DATABASE_URL to run the suite against Postgres (CI does this).
+os.environ["DATABASE_URL"] = os.getenv("TEST_DATABASE_URL", "sqlite:///./test.db")
 os.environ["ADMIN_API_KEY"] = "test-admin-key"
 os.environ["WHATSAPP_APP_SECRET"] = "test-secret"
 os.environ["WHATSAPP_VERIFY_TOKEN"] = "verify-me"
@@ -28,6 +29,9 @@ ADMIN = {"X-API-Key": "test-admin-key"}
 
 @pytest.fixture(scope="session")
 def client():
+    from sqlmodel import SQLModel
+    from api.db import engine
+    SQLModel.metadata.drop_all(engine)  # clean slate (Postgres keeps data between runs)
     with TestClient(app) as c:
         yield c
     if db_file.exists():

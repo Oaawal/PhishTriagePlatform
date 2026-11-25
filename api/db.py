@@ -6,9 +6,13 @@ from sqlmodel import Session, SQLModel, create_engine
 # Falls back to SQLite for local development.
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dev.db")
 
-# Some providers still hand out postgres:// URLs, which SQLAlchemy rejects.
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+# Use the psycopg (v3) driver explicitly. Providers hand out postgres:// or
+# postgresql:// URLs; SQLAlchemy rejects the first and may pick a different
+# driver for the second depending on its version.
+for prefix in ("postgres://", "postgresql://", "postgresql+psycopg2://"):
+    if DATABASE_URL.startswith(prefix):
+        DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL[len(prefix):]
+        break
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
